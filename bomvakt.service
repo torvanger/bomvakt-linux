@@ -1,0 +1,40 @@
+[Unit]
+Description=Bomvakt agent
+Documentation=https://bomvakt.com
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /usr/lib/bomvakt/bomvakt.py --conf /etc/bomvakt/bomvakt.conf
+Restart=on-failure
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+SyslogIdentifier=bomvakt
+
+# Runs as a throwaway user that only gets read access to the logs (group adm).
+DynamicUser=yes
+SupplementaryGroups=adm
+StateDirectory=bomvakt
+
+# Hardening: read-only system, no home dirs, no privileges.
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target
