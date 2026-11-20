@@ -304,7 +304,7 @@ sudo bomvakt status               # account, domains, logs, last send
 sudo bomvakt setup                # create an account, or switch to another key
 sudo bomvakt add-domain shop.example.com --name "Webshop"
 sudo bomvakt name shop.example.com Webshop   # display name; no name = the domain
-sudo bomvakt password             # password for the web login at bomvakt.com/konto
+sudo bomvakt password             # web login password; can also turn off two-step login (lost phone)
 bomvakt parse /var/log/nginx/access.log    # how lines are read; sends nothing
 journalctl -u bomvakt -f          # follow its log
 sudo systemctl restart bomvakt    # after editing the config

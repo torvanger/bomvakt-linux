@@ -9,7 +9,8 @@ and decide what to ban.
     bomvakt add-domain NAME    add a domain or IP address to the account
                                (--name "Shown name" sets its display name)
     bomvakt name DOMAIN [TEXT] set or clear a site's display name
-    bomvakt password           set the password for the web login (bomvakt.com/konto)
+    bomvakt password           set the password for the web login (bomvakt.com/konto),
+                               and turn two-step login off if the phone is lost
     bomvakt status             account, domains, logs, last send
     bomvakt update             install the latest version (keeps config and key)
     bomvakt parse FILE         show how log lines are read (no sending)
@@ -33,7 +34,7 @@ import time
 import urllib.error
 import urllib.request
 
-VERSION = "0.4.0"
+VERSION = "0.4.1"
 DEFAULT_CONF = "/etc/bomvakt/bomvakt.conf"
 DEFAULT_KEY = "/etc/bomvakt/key"
 DEFAULT_SERVER = "https://bomvakt.com"
@@ -773,11 +774,15 @@ def cmd_password(args, conf):
             print("  At least 8 characters.")
             continue
         break
+    reset = ask("Also turn off two-step login (lost phone)? (yes/no)", "no").lower() in ("y", "yes", "j", "ja")
     try:
-        r = api(conf["server"], "/api/password", {"password": pw}, key=key)
+        r = api(conf["server"], "/api/password", {"password": pw, "reset_2fa": reset}, key=key)
     except ApiError as e:
         sys.exit("bomvakt: %s" % e)
-    print("Password set. Log in at %s/konto as %s." % (conf["server"], r["username"]))
+    print("Password set. Every web login of the account has been logged out.")
+    if r.get("two_step_off"):
+        print("Two-step login is off; turn it on again under Inställningar at bomvakt.com/konto.")
+    print("Log in at %s/konto as %s." % (conf["server"], r["username"]))
 
 
 def cmd_status(args, conf):
@@ -861,7 +866,7 @@ def main():
     p = sub.add_parser("name", help="set a site's display name (no text = back to the domain)")
     p.add_argument("domain")
     p.add_argument("text", nargs="*", help="the name, e.g. My shop")
-    sub.add_parser("password", help="set the password for the web login")
+    sub.add_parser("password", help="set the web login password (and turn off two-step login)")
     sub.add_parser("status", help="account, domains, logs, last send")
     sub.add_parser("update", help="install the latest version")
     p = sub.add_parser("parse", help="show how a log file is read (sends nothing)")
