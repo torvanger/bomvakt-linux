@@ -9,6 +9,7 @@ and decide what to ban.
     bomvakt add-domain NAME    add a domain or IP address to the account
                                (--name "Shown name" sets its display name)
     bomvakt name DOMAIN [TEXT] set or clear a site's display name
+    bomvakt password           set the password for the web login (bomvakt.com/konto)
     bomvakt status             account, domains, logs, last send
     bomvakt update             install the latest version (keeps config and key)
     bomvakt parse FILE         show how log lines are read (no sending)
@@ -32,7 +33,7 @@ import time
 import urllib.error
 import urllib.request
 
-VERSION = "0.3.0"
+VERSION = "0.4.0"
 DEFAULT_CONF = "/etc/bomvakt/bomvakt.conf"
 DEFAULT_KEY = "/etc/bomvakt/key"
 DEFAULT_SERVER = "https://bomvakt.com"
@@ -710,6 +711,7 @@ def cmd_setup(args, conf):
     print("Saved the key in %s and domain = %s in %s." % (args.key_file, domain, args.conf))
     print("More websites on this server, each with its own access log? Run")
     print("sudo bomvakt add-domain <domain> for each; it shows the line to add.")
+    print("To see it all at bomvakt.com/konto, set a password: sudo bomvakt password")
     restart_service()
 
 
@@ -748,6 +750,34 @@ def cmd_name(args, conf):
         sys.exit("bomvakt: %s" % e)
     print("%s is now shown as %s." % (args.domain.lower(), text or "its domain"))
     print("Domains on the account: %s" % sites_line(r["sites"]))
+
+
+def cmd_password(args, conf):
+    """Set the password for the web login. The key proves the account is yours."""
+    need_root("password")
+    key = read_key(args.key_file)
+    if not key:
+        sys.exit("bomvakt: no key yet; run: sudo bomvakt setup")
+    import getpass
+    while True:
+        try:
+            pw = getpass.getpass("New password for bomvakt.com/konto (at least 8 characters): ")
+            again = getpass.getpass("Same password again: ")
+        except EOFError:
+            print()
+            sys.exit("bomvakt: no answer (no terminal); run: sudo bomvakt password")
+        if pw != again:
+            print("  The two passwords are not the same.")
+            continue
+        if len(pw) < 8:
+            print("  At least 8 characters.")
+            continue
+        break
+    try:
+        r = api(conf["server"], "/api/password", {"password": pw}, key=key)
+    except ApiError as e:
+        sys.exit("bomvakt: %s" % e)
+    print("Password set. Log in at %s/konto as %s." % (conf["server"], r["username"]))
 
 
 def cmd_status(args, conf):
@@ -831,6 +861,7 @@ def main():
     p = sub.add_parser("name", help="set a site's display name (no text = back to the domain)")
     p.add_argument("domain")
     p.add_argument("text", nargs="*", help="the name, e.g. My shop")
+    sub.add_parser("password", help="set the password for the web login")
     sub.add_parser("status", help="account, domains, logs, last send")
     sub.add_parser("update", help="install the latest version")
     p = sub.add_parser("parse", help="show how a log file is read (sends nothing)")
@@ -844,7 +875,7 @@ def main():
     if cmd == "run":
         run(conf, args.key_file)
         return
-    {"setup": cmd_setup, "add-domain": cmd_add_domain, "name": cmd_name, "status": cmd_status,
+    {"setup": cmd_setup, "add-domain": cmd_add_domain, "name": cmd_name, "password": cmd_password, "status": cmd_status,
      "update": cmd_update, "parse": cmd_parse}[cmd](args, conf)
 
 
