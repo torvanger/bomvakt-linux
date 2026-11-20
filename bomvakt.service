@@ -6,7 +6,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/python3 /usr/lib/bomvakt/bomvakt.py --conf /etc/bomvakt/bomvakt.conf
+ExecStart=/usr/bin/python3 /usr/lib/bomvakt/bomvakt.py --conf /etc/bomvakt/bomvakt.conf run
 Restart=on-failure
 RestartSec=10
 Environment=PYTHONUNBUFFERED=1
@@ -16,6 +16,11 @@ SyslogIdentifier=bomvakt
 DynamicUser=yes
 SupplementaryGroups=adm
 StateDirectory=bomvakt
+# The API key (root-only file) is handed to the service by systemd, so the
+# throwaway user never needs read access to /etc/bomvakt/key itself.
+# systemd older than 247 ignores this; install.sh then makes the key
+# readable by group adm instead.
+LoadCredential=key:/etc/bomvakt/key
 
 # Hardening: read-only system, no home dirs, no privileges.
 NoNewPrivileges=yes

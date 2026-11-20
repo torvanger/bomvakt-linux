@@ -1,34 +1,53 @@
 # Bomvakt for Linux
 
 Bomvakt is the guard at the boom barrier. This is its agent for Linux
-servers: a small service that reads your web server's access logs, so
-[Bomvakt](https://bomvakt.com) can tell real visitors from bots, including
-the ones that never run JavaScript.
+servers: a small service that reads your web server's access logs and sends
+them to [Bomvakt](https://bomvakt.com), so you can see who really hits your
+server, including the bots that never run JavaScript, and decide what to
+ban.
 
 ### What it does
 
 * Installs as one systemd service, `bomvakt`, with one command, and removes
   itself just as easily.
+* On first install, creates your Bomvakt account (username, optional email,
+  the domain or IP address to protect) and stores the account's key.
 * Follows your nginx or Apache access logs the way `tail -F` does, through
-  log rotation.
+  log rotation, and sends every line to Bomvakt over HTTPS, in compressed
+  batches every few seconds.
+* Keeps lines while Bomvakt cannot be reached, and after a restart carries
+  on where it stopped, so updates lose nothing.
 * Runs as a throwaway user that can read the logs and nothing else.
 * Needs only Python 3.8+ and its standard library: no pip, no packages, no
   compiler.
 
+### What it sends
+
+For each line of the access log: the time, the client IP address, the
+request (method, path with query string, protocol), the status code, the
+response size, the referrer and the user agent, plus the domain it belongs
+to. Nothing else from your server: no other files, no system details beyond
+the host name. Bomvakt keeps the lines for 30 days.
+
+The IP address and the full request are exactly what you need to decide
+what to ban, and they are personal data under the GDPR. Bomvakt processes
+them on your behalf, to protect your server.
+
 ### What it does not do
 
-* **It sends nothing anywhere yet.** Version 0.1 only counts log lines and
-  writes the count to the journal. This lets you check the install, the
-  permissions and the log paths before any data leaves your server.
-* It does not change your web server, firewall or other config.
+* It does not change your web server, firewall or other config. (Banning
+  comes later, and only when you turn it on.)
 * It does not need root once it is installed.
+* It does not update itself. You decide when: `sudo bomvakt update`.
 
 ----
 
 ## Table of contents
 
 * [How it works](#how-it-works)
+  * [Your account and key](#your-account-and-key)
   * [Following the logs](#following-the-logs)
+  * [Sending](#sending)
   * [The service](#the-service)
   * [What the installer does](#what-the-installer-does)
 * [Installation](#installation)
@@ -37,7 +56,7 @@ the ones that never run JavaScript.
   * [Install from a checkout](#install-from-a-checkout)
 * [Configuration](#configuration)
 * [Usage](#usage)
-* [Upgrading](#upgrading)
+* [Updating](#updating)
 * [Uninstalling](#uninstalling)
 * [Troubleshooting](#troubleshooting)
 * [Development](#development)
@@ -46,6 +65,42 @@ the ones that never run JavaScript.
 ----
 
 ## How it works
+
+### Your account and key
+
+The first install asks whether you already have an account:
+
+```
+  1) Existing user: I have a key
+  2) Create a new user
+
+Choose 1 or 2: 2
+Username: kim
+Email (optional): kim@example.com
+Website on this server (domain or IP address) [web1.example.com]: example.com
+```
+
+Bomvakt creates the account and answers with its key, `bv_` followed by 40
+characters. The key is the login to your account and is shown only once:
+keep a copy. It is saved in `/etc/bomvakt/key` (readable by root only) and
+handed to the service by systemd, so the service's own user never reads the
+file.
+
+One account holds many domains and servers. On your next server, run the
+installer, choose 1 and paste the key, instead of creating a new account.
+Add more domains with `sudo bomvakt add-domain shop.example.com`.
+[SETUP-EXAMPLES.md](SETUP-EXAMPLES.md) shows what setup says in every case.
+
+A domain covers its subdomains: lines for `www.example.com` and
+`shop.example.com` count for `example.com`. A server without a domain name
+can be registered by its IP address.
+
+Setup asks which website runs on the server because a line in the usual
+access log format has no domain in it: the agent tags every line of the log
+with that site. A server with several sites, each with its own log, maps
+them under `[logs]` in `bomvakt.conf` (`sudo bomvakt add-domain` prints the
+line). With Apache's `vhost_combined` format the site is read from each
+line instead, so one shared log works too.
 
 ### Following the logs
 
@@ -63,11 +118,34 @@ If a log does not exist or cannot be read, the agent writes one warning and
 keeps trying. It picks up the file as soon as it appears, so you can install
 the agent before the web server.
 
-Every `interval` seconds (default 60) it writes one line per log to the
-journal:
+The agent reads the `combined` log format, the default of both nginx and
+Apache, and Apache's `vhost_combined` (`other_vhosts_access.log`), where the
+host name at the start of each line decides the domain. Check what it makes
+of your log with `bomvakt parse /var/log/nginx/access.log`: it shows the
+first lines as they would be sent, and counts lines it cannot read.
+
+### Sending
+
+Lines go out every 5 seconds, or sooner when 2,000 are waiting, as one
+gzip-compressed HTTPS request to `https://bomvakt.com/api/ingest` with your
+key.
+
+* **Bomvakt cannot be reached:** lines wait in memory (up to 200,000) and
+  the agent retries after 5, 10, 20 … up to 300 seconds.
+* **Restart or update:** after each successful send the agent writes how
+  far it has read each log to `/var/lib/bomvakt/state.json`. When it starts
+  again it carries on from there, so lines written while it was stopped are
+  sent too (up to 100 MB of backlog; more than that, it starts at the end).
+  Before the first send it starts at the end of each log: no history.
+* **A domain that is not on your account:** its lines are dropped, with one
+  warning in the journal naming the domain.
+* **The key is refused:** one error in the journal; it tries again every 5
+  minutes.
+
+Every `interval` seconds (default 300) it writes a summary to the journal:
 
 ```
-bomvakt[812]: INFO lines in the last 60 s: /var/log/nginx/access.log 1342
+bomvakt[812]: INFO last 300 s: lines /var/log/nginx/access.log 6710; sent 6710, waiting 0
 ```
 
 ### The service
@@ -84,6 +162,10 @@ rest:
   `CapabilityBoundingSet=`** and friends: the whole file system is read-only,
   home directories are hidden, and the process has no special rights. The
   only writable place is `/var/lib/bomvakt` (`StateDirectory`).
+* **`LoadCredential=key:/etc/bomvakt/key`**: systemd reads the root-only
+  key file and gives the service a private copy. (systemd older than 247,
+  e.g. RHEL 8, lacks this: there the installer makes the key file readable
+  by group `adm` instead.)
 * **`Restart=on-failure`**: if it crashes, systemd starts it again after
   10 seconds.
 
@@ -100,18 +182,25 @@ you can read it, or run any line by hand. On `install` it:
    it is missing;
 3. downloads `bomvakt.py`, `bomvakt.service`, `bomvakt.conf` and itself into
    a temporary directory, and checks that `bomvakt.py` compiles;
-4. copies them into place (see below), keeping an existing config;
-5. enables and starts the service, and shows the log if it fails to start.
+4. copies them into place (see below), keeping an existing config and key;
+5. enables and starts the service, and shows the log if it fails to start;
+6. if this server has no key yet, runs `bomvakt setup` (account and key).
+   With no terminal to ask on (e.g. from a provisioning tool), or with
+   `BOMVAKT_NO_SETUP=1`, it skips this and tells you to run it later.
+
+`update` does steps 1 to 5 and never asks anything.
 
 These are the only paths it touches:
 
 | Path | What | `uninstall` | `purge` |
 |---|---|---|---|
 | `/usr/lib/bomvakt/bomvakt.py` | the agent | removed | removed |
-| `/usr/lib/bomvakt/install.sh` | the installer, for offline uninstall | removed | removed |
+| `/usr/lib/bomvakt/install.sh` | the installer, for update and offline uninstall | removed | removed |
+| `/usr/local/bin/bomvakt` | link to the agent, the `bomvakt` command | removed | removed |
 | `/etc/systemd/system/bomvakt.service` | the service | removed | removed |
-| `/var/lib/bomvakt` | state | removed | removed |
+| `/var/lib/bomvakt` | state: how far each log was read | removed | removed |
 | `/etc/bomvakt/bomvakt.conf` | your config | **kept** | removed |
+| `/etc/bomvakt/key` | your account's key | **kept** | removed |
 
 ----
 
@@ -124,6 +213,7 @@ These are the only paths it touches:
 * Python 3.8 or newer (installed for you on apt and dnf systems).
 * `curl` or `wget`.
 * Root, for the install only.
+* Outgoing HTTPS (port 443) to `bomvakt.com`.
 
 ### One-line install
 
@@ -138,6 +228,10 @@ Then install:
 ```sh
 curl -fsSL https://bomvakt.com/install.sh | sudo sh
 ```
+
+It installs, starts the service, and then asks whether you are an existing
+user (paste your key) or a new one (username, optional email, the domain to
+protect).
 
 `https://bomvakt.com/install.sh` is a redirect to `install.sh` in this
 repository, so what you read here is what you run.
@@ -166,11 +260,26 @@ curl -fsSL https://bomvakt.com/install.sh | sudo BOMVAKT_SRC=https://raw.githubu
 
 ```ini
 [bomvakt]
-# Access logs to follow, comma-separated.
+# The domain (or IP address) these logs belong to. `bomvakt setup` fills it in.
+domain = example.com
+
+# Access logs to follow, comma-separated. Their lines are sent as `domain`.
 logs = /var/log/nginx/access.log
 
 # Seconds between summaries in the journal (minimum 10).
-interval = 60
+interval = 300
+
+# Where to send. Leave as is.
+server = https://bomvakt.com
+```
+
+One log per site: list each under `[logs]` with its own domain (add the
+domains to your account first with `sudo bomvakt add-domain`):
+
+```ini
+[logs]
+/var/log/nginx/shop.access.log = shop.example.com
+/var/log/nginx/blog.access.log = blog.example.com
 ```
 
 Common log paths:
@@ -180,7 +289,6 @@ Common log paths:
 | nginx | `/var/log/nginx/access.log` | `/var/log/nginx/access.log` |
 | Apache | `/var/log/apache2/access.log` | `/var/log/httpd/access_log` |
 
-Several sites with their own logs: list them all, separated by commas.
 After a change:
 
 ```sh
@@ -192,21 +300,33 @@ sudo systemctl restart bomvakt
 ## Usage
 
 ```sh
-systemctl status bomvakt          # running?
+sudo bomvakt status               # account, domains, logs, last send
+sudo bomvakt setup                # create an account, or switch to another key
+sudo bomvakt add-domain shop.example.com
+bomvakt parse /var/log/nginx/access.log    # how lines are read; sends nothing
 journalctl -u bomvakt -f          # follow its log
 sudo systemctl restart bomvakt    # after editing the config
-python3 /usr/lib/bomvakt/bomvakt.py --version
+bomvakt --version
 ```
 
 ----
 
-## Upgrading
-
-Run the install again. It replaces the agent and the service, keeps your
-config, and restarts the service:
+## Updating
 
 ```sh
-curl -fsSL https://bomvakt.com/install.sh | sudo sh
+sudo bomvakt update
+```
+
+It downloads the latest version, replaces the agent and the service, keeps
+your config and key, and restarts the service. It never asks anything, so
+it is safe in scripts. The agent picks up from where it stopped reading: no
+lines are lost. When a newer version exists, the agent says so once in the
+journal and in `bomvakt status`.
+
+The same, without the `bomvakt` command (e.g. from version 0.1):
+
+```sh
+curl -fsSL https://bomvakt.com/install.sh | sudo sh -s -- update
 ```
 
 ----
@@ -218,7 +338,8 @@ curl -fsSL https://bomvakt.com/install.sh | sudo sh -s -- uninstall
 ```
 
 This stops and removes the service and everything in the table above except
-your config. To remove the config too, use `purge` instead of `uninstall`.
+your config and key. To remove those too, use `purge` instead of
+`uninstall`. Your account and the lines already sent stay at Bomvakt.
 
 Without network access, use the copy the installer left behind:
 
@@ -239,12 +360,28 @@ fix the `create` line in `/etc/logrotate.d/nginx` (or `apache2`/`httpd`).
 config, or the web server has not written a log yet. See
 [Configuration](#configuration).
 
+**`lines for shop.example.com are dropped: it is not on your account`**: the
+log has lines for a domain your account does not have. Add it with
+`sudo bomvakt add-domain shop.example.com`, or fix `domain` in the config.
+
+**`the server does not accept the key`**: the key in `/etc/bomvakt/key` is
+wrong or was replaced. Run `sudo bomvakt setup` and paste the right one.
+
+**`some lines are not in the combined log format`**: your web server uses
+another `log_format`. Run `bomvakt parse` on the log to see which lines.
+Switch the `access_log` back to `combined` (nginx) or `CustomLog … combined`
+(Apache).
+
+**`send failed … retry in`**: Bomvakt could not be reached. The lines wait
+and are sent when it answers again. Check that the server can open
+`https://bomvakt.com` (`curl -I https://bomvakt.com`).
+
 **The service does not start**: the installer prints the last 20 log lines.
 Later: `journalctl -u bomvakt -n 50`.
 
 **`needs systemd`**: containers and some minimal systems run without
 systemd. Run the agent directly instead:
-`python3 bomvakt.py --conf bomvakt.conf`.
+`python3 bomvakt.py --conf bomvakt.conf --key-file key run`.
 
 ----
 
@@ -255,12 +392,16 @@ and `bomvakt.conf`. Run the agent in the foreground against any file, no
 root needed:
 
 ```sh
-printf '[bomvakt]\nlogs = /tmp/test.log\ninterval = 10\n' > /tmp/test.conf
+printf '[bomvakt]\ndomain = example.com\nlogs = /tmp/test.log\ninterval = 10\n' > /tmp/test.conf
 touch /tmp/test.log
-python3 bomvakt.py --conf /tmp/test.conf
+python3 bomvakt.py --conf /tmp/test.conf --key-file /tmp/test.key run
 ```
 
-In another terminal, `echo hello >> /tmp/test.log`. Stop it with Ctrl-C.
+Without a key it reads and counts but sends nothing. In another terminal,
+append a line in the combined format to `/tmp/test.log`. Stop it with
+Ctrl-C. To send to a local Bomvakt, set `server = http://localhost:8080` in
+the config (or `BOMVAKT_SERVER=…`), put a key in `/tmp/test.key`, and set
+`STATE_DIRECTORY=/tmp` to test resuming.
 
 Checks before a commit:
 
