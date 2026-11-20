@@ -3,7 +3,9 @@
 What `sudo bomvakt setup` (and the first install) shows in every case, with
 made-up answers. The keys and names here are examples. The server's own name
 is `web1.example.com`, which setup suggests as the domain; Enter takes the
-suggestion in brackets.
+suggestion in brackets. The display name is optional: it is what the site is
+called in the account at bomvakt.com, and Enter leaves it as the domain.
+Change it later with `sudo bomvakt name <domain> <name>`.
 
 The account `kim` (key `bv_3f9a…7d2e`) already exists with `example.com` and
 `shop.example.com`; another account holds `shared.example.net`.
@@ -33,7 +35,7 @@ Apache's `vhost_combined` format the site is read from each line instead.
 
 ## New user, everything right the first time
 
-Choose 2, a username, an email, and Enter to take the suggested domain (the server's own name).
+Choose 2, a username, an email, Enter to take the suggested domain (the server's own name), and a display name for the account's site list.
 
 ```console
 Bomvakt setup (https://bomvakt.com)
@@ -48,6 +50,7 @@ only used to reach you about the account, and can be left empty.
 Username: anna
 Email (optional): anna@example.org
 Website on this server (domain or IP address) [web1.example.com]: 
+Display name in your account (optional, Enter = the domain): Annas webb
 
 Account created: anna
 
@@ -86,6 +89,7 @@ Username: al
 Username: admin
 Email (optional): anna@
 Website on this server (domain or IP address) [web1.example.com]: localhost
+Display name in your account (optional, Enter = the domain): 
   The username admin is reserved.
 Username: kim
   That does not look like an email address.
@@ -128,6 +132,7 @@ only used to reach you about the account, and can be left empty.
 Username: anna
 Email (optional): 
 Website on this server (domain or IP address) [web1.example.com]: shared.example.net
+Display name in your account (optional, Enter = the domain): 
 
 Account created: anna
 
@@ -162,6 +167,7 @@ only used to reach you about the account, and can be left empty.
 Username: anna
 Email (optional): 
 Website on this server (domain or IP address) [web1.example.com]: 203.0.113.7
+Display name in your account (optional, Enter = the domain): 
 
 Account created: anna
 
@@ -196,6 +202,7 @@ only used to reach you about the account, and can be left empty.
 Username: anna
 Email (optional): 
 Website on this server (domain or IP address) [web1.example.com]: 
+Display name in your account (optional, Enter = the domain): 
   Too many sign-ups from this address. Try again in an hour.
 ```
 
@@ -352,6 +359,7 @@ only used to reach you about the account, and can be left empty.
 Username: anna
 Email (optional): 
 Website on this server (domain or IP address) [web1.example.com]: anna.example.org
+Display name in your account (optional, Enter = the domain): 
 
 Account created: anna
 

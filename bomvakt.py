@@ -7,6 +7,8 @@ and decide what to ban.
 
     bomvakt setup              create an account, or use an existing key
     bomvakt add-domain NAME    add a domain or IP address to the account
+                               (--name "Shown name" sets its display name)
+    bomvakt name DOMAIN [TEXT] set or clear a site's display name
     bomvakt status             account, domains, logs, last send
     bomvakt update             install the latest version (keeps config and key)
     bomvakt parse FILE         show how log lines are read (no sending)
@@ -30,7 +32,7 @@ import time
 import urllib.error
 import urllib.request
 
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 DEFAULT_CONF = "/etc/bomvakt/bomvakt.conf"
 DEFAULT_KEY = "/etc/bomvakt/key"
 DEFAULT_SERVER = "https://bomvakt.com"
@@ -674,12 +676,13 @@ def cmd_setup(args, conf):
             print("  3-32 characters: a-z, 0-9, dot, dash, underscore.")
         email = ask("Email (optional)")
         domain = ask("Website on this server (domain or IP address)", guess_domain()).lower()
+        name = ask("Display name in your account (optional, Enter = the domain)")
         while True:
             if not domain:
                 domain = ask("Website on this server (required)").lower()
                 continue
             try:
-                r = api(server, "/api/register", {"username": user, "email": email, "domain": domain})
+                r = api(server, "/api/register", {"username": user, "email": email, "domain": domain, "name": name})
                 break
             except ApiError as e:
                 print("  %s" % e)
@@ -716,16 +719,35 @@ def cmd_add_domain(args, conf):
         need_root("add-domain")
         sys.exit("bomvakt: no key yet; run: sudo bomvakt setup")
     try:
-        r = api(conf["server"], "/api/domain", {"domain": args.domain}, key=key)
+        r = api(conf["server"], "/api/domain", {"domain": args.domain, "name": args.name or ""}, key=key)
     except ApiError as e:
         sys.exit("bomvakt: %s" % e)
-    print("Domains on the account: %s" % ", ".join(s["domain"] for s in r["sites"]))
+    print("Domains on the account: %s" % sites_line(r["sites"]))
     print("To send a log of its own for it, add to %s:" % args.conf)
     print()
     print("  [logs]")
     print("  /var/log/nginx/%s.access.log = %s" % (args.domain.lower(), args.domain.lower()))
     print()
     print("then: sudo systemctl restart bomvakt")
+
+
+def sites_line(sites):
+    """example.com (Shop), other.se: the domains, with display names."""
+    return ", ".join(s["domain"] + (" (%s)" % s["name"] if s.get("name") else "") for s in sites) or "none"
+
+
+def cmd_name(args, conf):
+    key = read_key(args.key_file)
+    if not key:
+        need_root("name")
+        sys.exit("bomvakt: no key yet; run: sudo bomvakt setup")
+    text = " ".join(args.text).strip()
+    try:
+        r = api(conf["server"], "/api/name", {"domain": args.domain, "name": text}, key=key)
+    except ApiError as e:
+        sys.exit("bomvakt: %s" % e)
+    print("%s is now shown as %s." % (args.domain.lower(), text or "its domain"))
+    print("Domains on the account: %s" % sites_line(r["sites"]))
 
 
 def cmd_status(args, conf):
@@ -741,7 +763,7 @@ def cmd_status(args, conf):
         try:
             me = api(conf["server"], "/api/me", key=key)
             print("account: %s" % me["account"]["username"])
-            print("domains: %s" % (", ".join(s["domain"] for s in me["sites"]) or "none"))
+            print("domains: %s" % sites_line(me["sites"]))
             latest = me.get("agent_latest")
             if latest and newer(latest, VERSION):
                 print("update:  %s is available (sudo bomvakt update)" % latest)
@@ -805,6 +827,10 @@ def main():
     sub.add_parser("setup", help="create an account or use an existing key")
     p = sub.add_parser("add-domain", help="add a domain or IP address to the account")
     p.add_argument("domain")
+    p.add_argument("--name", default="", help="display name in the account (default: the domain)")
+    p = sub.add_parser("name", help="set a site's display name (no text = back to the domain)")
+    p.add_argument("domain")
+    p.add_argument("text", nargs="*", help="the name, e.g. My shop")
     sub.add_parser("status", help="account, domains, logs, last send")
     sub.add_parser("update", help="install the latest version")
     p = sub.add_parser("parse", help="show how a log file is read (sends nothing)")
@@ -818,7 +844,7 @@ def main():
     if cmd == "run":
         run(conf, args.key_file)
         return
-    {"setup": cmd_setup, "add-domain": cmd_add_domain, "status": cmd_status,
+    {"setup": cmd_setup, "add-domain": cmd_add_domain, "name": cmd_name, "status": cmd_status,
      "update": cmd_update, "parse": cmd_parse}[cmd](args, conf)
 
 
