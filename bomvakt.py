@@ -1496,7 +1496,7 @@ def cmd_password(args, conf):
         sys.exit("bomvakt: %s" % e)
     print("Password set. Every web login of the account has been logged out.")
     if r.get("two_step_off"):
-        print("Two-step login is off; turn it on again under Inställningar at bomvakt.com/konto.")
+        print("Two-step login is off; turn it on again in your account settings: https://bomvakt.com/konto/profil")
     print("Log in at %s/konto as %s." % (conf["server"], r["username"]))
 
 
