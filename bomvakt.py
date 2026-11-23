@@ -36,7 +36,7 @@ import time
 import urllib.error
 import urllib.request
 
-VERSION = "0.5.0"
+VERSION = "0.5.1"
 DEFAULT_CONF = "/etc/bomvakt/bomvakt.conf"
 DEFAULT_KEY = "/etc/bomvakt/key"
 DEFAULT_SERVER = "https://bomvakt.com"
