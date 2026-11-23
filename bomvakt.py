@@ -36,12 +36,13 @@ import time
 import urllib.error
 import urllib.request
 
-VERSION = "0.5.3"
+VERSION = "0.5.4"
 DEFAULT_CONF = "/etc/bomvakt/bomvakt.conf"
 DEFAULT_KEY = "/etc/bomvakt/key"
 DEFAULT_SERVER = "https://bomvakt.com"
 DEFAULT_LOGS = "/var/log/nginx/access.log"
 INSTALLER = "/usr/lib/bomvakt/install.sh"
+SRC_URL = os.environ.get("BOMVAKT_SRC") or "https://raw.githubusercontent.com/torvanger/bomvakt-linux/main"
 
 POLL_SECONDS = 1.0
 FLUSH_SECONDS = 5.0       # send at least this often while there are lines
@@ -1542,12 +1543,52 @@ def cmd_status(args, conf):
         os.system("systemctl is-active bomvakt >/dev/null 2>&1 && echo 'running: yes' || echo 'running: no'")
 
 
+def newest_installer(tmp):
+    """Download the newest install.sh into tmp; return its path, or None."""
+    import subprocess
+    path = os.path.join(tmp, "install.sh")
+    req = urllib.request.Request(SRC_URL + "/install.sh", headers={"User-Agent": "bomvakt-linux/" + VERSION})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            body = r.read(1 << 20)
+    except (OSError, ValueError) as e:
+        print("bomvakt: could not download the newest installer (%s)" % e)
+        return None
+    if not body.startswith(b"#!"):
+        print("bomvakt: the downloaded installer does not look like a script")
+        return None
+    with open(path, "wb") as fh:
+        fh.write(body)
+    try:
+        ok = subprocess.run(["sh", "-n", path]).returncode == 0
+    except OSError:
+        ok = False
+    if not ok:
+        print("bomvakt: the downloaded installer failed sh -n")
+        return None
+    return path
+
+
 def cmd_update(args, conf):
+    """Run the newest install.sh (so installer changes apply at once); the local copy if that fails."""
+    import shutil
+    import subprocess
+    import tempfile
     need_root("update")
-    if not os.path.exists(INSTALLER):
-        sys.exit("bomvakt: %s is missing; run the installer again:\n"
-                 "  curl -fsSL https://bomvakt.com/install.sh | sudo sh" % INSTALLER)
-    os.execv("/bin/sh", ["sh", INSTALLER, "update"])
+    tmp = tempfile.mkdtemp(prefix="bomvakt-update-")
+    try:
+        script = newest_installer(tmp)
+        if script is None:
+            if not os.path.exists(INSTALLER):
+                sys.exit("bomvakt: %s is missing; run the installer again:\n"
+                         "  curl -fsSL https://bomvakt.com/install.sh | sudo sh" % INSTALLER)
+            print("bomvakt: using the installed copy, %s" % INSTALLER)
+            script = INSTALLER
+        sys.stdout.flush()
+        rc = subprocess.run(["sh", script, "update"]).returncode
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    sys.exit(rc)
 
 
 def cmd_parse(args, conf):

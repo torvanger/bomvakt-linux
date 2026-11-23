@@ -347,8 +347,11 @@ bomvakt --version
 sudo bomvakt update
 ```
 
-It downloads the latest version, replaces the agent and the service, keeps
-your config and key, and restarts the service. It never asks anything, so
+It downloads the newest installer and runs it, so changes to the installer
+apply on the first update (if the download fails, the installed copy in
+`/usr/lib/bomvakt` is used). The installer downloads the latest version,
+replaces the agent and the service, keeps your config and key, and restarts
+the service. It never asks anything, so
 it is safe in scripts. The agent picks up from where it stopped reading: no
 lines are lost. When a newer version exists, the agent says so once in the
 journal and in `bomvakt status`.

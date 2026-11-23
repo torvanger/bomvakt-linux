@@ -1,5 +1,5 @@
 .\" Manual page for the Bomvakt agent. View it in place with: man ./bomvakt.1
-.TH BOMVAKT 1 "2026-11-23" "bomvakt 0.5.3" "Bomvakt"
+.TH BOMVAKT 1 "2026-11-23" "bomvakt 0.5.4" "Bomvakt"
 .SH NAME
 bomvakt \- send a web server's access logs to Bomvakt
 .SH SYNOPSIS
@@ -84,7 +84,8 @@ Take every change out again.
 .RE
 .TP
 .B update
-Install the newest version. Keeps the config and the key.
+Download the newest installer and run it, so changes to the installer apply at once
+(the installed copy is used if the download fails). Keeps the config and the key.
 .TP
 .BI parse " file"
 Show how the lines of a log file are read: the first lines as they would
@@ -154,7 +155,7 @@ lines for a domain that is not are dropped by the server.
 The agent.
 .TP
 .I /usr/lib/bomvakt/install.sh
-The installer, used by \fBupdate\fR and for uninstalling.
+The installer, used for uninstalling and by \fBupdate\fR when the newest one cannot be downloaded.
 .TP
 .I /usr/local/bin/bomvakt
 Link to the agent.
