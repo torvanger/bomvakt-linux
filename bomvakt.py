@@ -36,7 +36,7 @@ import time
 import urllib.error
 import urllib.request
 
-VERSION = "0.5.1"
+VERSION = "0.5.2"
 DEFAULT_CONF = "/etc/bomvakt/bomvakt.conf"
 DEFAULT_KEY = "/etc/bomvakt/key"
 DEFAULT_SERVER = "https://bomvakt.com"
@@ -493,7 +493,7 @@ class State:
             log.warning("cannot save state: %s", e)
 
 
-def run(conf, key_file):
+def run(conf, key_file, conf_path=DEFAULT_CONF):
     stop = {"now": False}
 
     def on_signal(signum, _frame):
@@ -508,6 +508,10 @@ def run(conf, key_file):
         key = ""
     if not key:
         log.warning("no key yet: lines are counted, not sent. Run: sudo bomvakt setup")
+
+    found = fix_default_log(conf_path, conf)
+    if found:
+        log.info("%s does not exist: following %s instead (saved in %s)", DEFAULT_LOGS, found, conf_path)
 
     state = State()
     sender = Sender(conf["server"], key)
@@ -823,6 +827,28 @@ def default_log():
     return ""
 
 
+def fix_default_log(path, conf):
+    """The config's nginx log on a server without nginx (the shipped default):
+    put the web server log that is there in its place, in the file and in
+    `conf`. Returns that log, or '' when nothing changed."""
+    if DEFAULT_LOGS not in conf["logs"] or os.path.exists(DEFAULT_LOGS):
+        return ""
+    found = default_log()
+    if not found or found in conf["logs"]:
+        return ""
+    cp = configparser.ConfigParser()
+    try:
+        with open(path, encoding="utf-8") as fh:
+            cp.read_file(fh)
+        raw = cp.get("bomvakt", "logs", fallback=DEFAULT_LOGS)
+        new = ", ".join(found if p.strip() == DEFAULT_LOGS else p.strip() for p in raw.split(",") if p.strip())
+        set_conf_value(path, "logs", new or found)
+    except (OSError, configparser.Error):
+        return ""
+    conf["logs"][found] = conf["logs"].pop(DEFAULT_LOGS)
+    return found
+
+
 def panel():
     for path, name in PANELS:
         if os.path.exists(path):
@@ -1002,6 +1028,9 @@ def cmd_logs(args, conf):
         return logs_undo(args, conf)
     if not args.dry_run:
         need_root("logs")
+        found = fix_default_log(args.conf, conf)
+        if found:
+            print("%s: logs = %s (this server has no %s)." % (args.conf, found, DEFAULT_LOGS))
     name = panel()
     if name:
         sys.exit("bomvakt: %s manages this server's web configs and would overwrite a change.\n"
@@ -1328,11 +1357,9 @@ def cmd_setup(args, conf):
     print()
     print("Saved the key in %s" % args.key_file)
     print("and domain = %s in %s." % (domain, args.conf))
-    if not any(os.path.exists(p) for p in conf["logs"]):
-        found = default_log()
-        if found:
-            set_conf_value(args.conf, "logs", found)
-            print("Set logs = %s (the web server log on this server)." % found)
+    found = fix_default_log(args.conf, conf)
+    if found:
+        print("and logs = %s: this server has no %s." % (found, DEFAULT_LOGS))
     site = own_site(server, key, domain)
     if site:
         print()
@@ -1574,7 +1601,7 @@ def main():
     conf = load_config(args.conf)
     cmd = args.cmd or "run"
     if cmd == "run":
-        run(conf, args.key_file)
+        run(conf, args.key_file, args.conf)
         return
     {"setup": cmd_setup, "add-domain": cmd_add_domain, "name": cmd_name, "password": cmd_password, "status": cmd_status, "logs": cmd_logs,
      "update": cmd_update, "parse": cmd_parse}[cmd](args, conf)
