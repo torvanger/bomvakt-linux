@@ -815,6 +815,14 @@ def site_log_path(domain):
     return "/var/log/nginx/%s.access.log" % domain
 
 
+def default_log():
+    """The shared access log of the web server on this server, or ''."""
+    for _, _, path in SITE_CONFS:
+        if os.path.exists(path):
+            return path
+    return ""
+
+
 def panel():
     for path, name in PANELS:
         if os.path.exists(path):
@@ -1081,7 +1089,7 @@ def cmd_logs(args, conf):
             show_diff(f, fh.read().split("\n"), edits[f])
     if f2b_new is not None:
         show_diff(F2B_JAIL, f2b_old.split("\n"), f2b_new.split("\n"))
-    print("and in %s, under [logs]:" % args.conf)
+    print("%s %s, under [logs]:" % ("and in" if edits or f2b_new is not None else "In", args.conf))
     for site, path in sorted(new_logs.items()):
         print("  %s = %s" % (path, site))
     print()
@@ -1320,6 +1328,15 @@ def cmd_setup(args, conf):
     print()
     print("Saved the key in %s" % args.key_file)
     print("and domain = %s in %s." % (domain, args.conf))
+    if not any(os.path.exists(p) for p in conf["logs"]):
+        found = default_log()
+        if found:
+            set_conf_value(args.conf, "logs", found)
+            print("Set logs = %s (the web server log on this server)." % found)
+    site = own_site(server, key, domain)
+    if site:
+        print()
+        show_tag(server, site)
     print()
     print("More websites on this server, each with its own access log?")
     print("Run this for each; it shows the line to add:")
@@ -1347,14 +1364,61 @@ def cmd_add_domain(args, conf):
         r = api(conf["server"], "/api/domain", {"domain": args.domain, "name": args.name or ""}, key=key)
     except ApiError as e:
         sys.exit("bomvakt: %s" % e)
+    domain = args.domain.lower()
     print("Domains on the account: %s" % sites_line(r["sites"]))
-    print("To send a log of its own for it, add to %s:" % args.conf)
+    site = find_site(r["sites"], domain)
+    if site:
+        print()
+        show_tag(conf["server"], site)
+    print()
+    if domain in conf["logs"].values():
+        print("The agent already reads a log of its own for %s." % domain)
+        return
+    print("The server log: the agent sends nothing for %s yet. It reads only" % domain)
+    print("the logs in %s, and their lines count for %s." % (args.conf, conf["domain"] or "the main domain"))
+    print()
+    if os.geteuid() == 0 and vhosts() and not panel():
+        print("`sudo bomvakt logs` finds the site's log, shows each change and asks first.")
+        if ask("Run it now? (yes/no)", "yes").lower() in ("y", "yes", "j", "ja"):
+            print()
+            cmd_logs(argparse.Namespace(undo=False, dry_run=False, yes=False,
+                                        conf=args.conf, key_file=args.key_file), conf)
+            return
+        print("Later: sudo bomvakt logs")
+        return
+    print("Give it a log of its own, then add to %s:" % args.conf)
     print()
     print("  [logs]")
-    print("  %s = %s" % (site_log_path(args.domain.lower()), args.domain.lower()))
+    print("  %s = %s" % (site_log_path(domain), domain))
     print()
     print("then: sudo systemctl restart bomvakt")
-    print("No log of its own yet? How to add one: %s/konto/hjalp/sajtlogg" % conf["server"])
+    print("How to give a site its own log: %s/konto/hjalp/sajtlogg" % conf["server"])
+
+
+def find_site(sites, domain):
+    """The site for a domain in an /api reply (www. or not), or None."""
+    bare = domain[4:] if domain.startswith("www.") else domain
+    for s in sites:
+        if s["domain"] in (domain, bare, "www." + bare):
+            return s
+    return None
+
+
+def own_site(server, key, domain):
+    try:
+        return find_site(api(server, "/api/me", key=key).get("sites", []), domain)
+    except ApiError:
+        return None
+
+
+def show_tag(server, site):
+    """The tracking code for a site's pages, and where the web panel has it."""
+    print("For statistics on the people who visit %s, paste this into <head>" % site["domain"])
+    print("on every page (no cookies, no consent banner):")
+    print()
+    print('  <script async src="%s/js/bv.min.js" data-site="%s"></script>' % (server, site["site_key"]))
+    print()
+    print("It is also under Integration: %s/konto/sajt/%d/integration" % (server, site["id"]))
 
 
 def sites_line(sites):
@@ -1430,6 +1494,8 @@ def cmd_status(args, conf):
     print("logs:")
     for p, d in conf["logs"].items():
         ok = "readable" if os.access(p, os.R_OK) else ("missing" if not os.path.exists(p) else "not readable by you")
+        if ok == "missing" and default_log() and default_log() not in conf["logs"]:
+            ok = "missing; this server's web server log is %s" % default_log()
         print("  %s -> %s (%s)" % (p, d or "NO DOMAIN", ok))
     notes = shared_log_notes(conf)
     if notes:
