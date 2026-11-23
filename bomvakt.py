@@ -594,7 +594,9 @@ def need_root(what):
 def restart_service():
     if os.path.isdir("/run/systemd/system") and os.system("systemctl is-enabled --quiet bomvakt 2>/dev/null") == 0:
         os.system("systemctl restart bomvakt")
-        print("Restarted the bomvakt service. Follow it with: journalctl -u bomvakt -f")
+        print()
+        print("Restarted the bomvakt service. Follow it with:")
+        print("  journalctl -u bomvakt -f")
 
 
 # ------------------------------------------------------- one log per site
@@ -1316,10 +1318,15 @@ def cmd_setup(args, conf):
     write_key(args.key_file, key)
     set_conf_value(args.conf, "domain", domain)
     print()
-    print("Saved the key in %s and domain = %s in %s." % (args.key_file, domain, args.conf))
-    print("More websites on this server, each with its own access log? Run")
-    print("sudo bomvakt add-domain <domain> for each; it shows the line to add.")
-    print("To see it all at bomvakt.com/konto, set a password: sudo bomvakt password")
+    print("Saved the key in %s" % args.key_file)
+    print("and domain = %s in %s." % (domain, args.conf))
+    print()
+    print("More websites on this server, each with its own access log?")
+    print("Run this for each; it shows the line to add:")
+    print("  sudo bomvakt add-domain <domain>")
+    print()
+    print("To see it all at bomvakt.com/konto, set a password:")
+    print("  sudo bomvakt password")
     conf = load_config(args.conf)
     if shared_groups(vhosts()) and not panel():
         print()

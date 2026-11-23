@@ -62,11 +62,18 @@ This key is the login to your account, and it is shown only this once.
 Keep a copy somewhere safe: use it with `bomvakt setup` on your other
 servers, so they join the same account.
 
-Saved the key in /etc/bomvakt/key and domain = web1.example.com in /etc/bomvakt/bomvakt.conf.
-More websites on this server, each with its own access log? Run
-sudo bomvakt add-domain <domain> for each; it shows the line to add.
-To see it all at bomvakt.com/konto, set a password: sudo bomvakt password
-Restarted the bomvakt service. Follow it with: journalctl -u bomvakt -f
+Saved the key in /etc/bomvakt/key
+and domain = web1.example.com in /etc/bomvakt/bomvakt.conf.
+
+More websites on this server, each with its own access log?
+Run this for each; it shows the line to add:
+  sudo bomvakt add-domain <domain>
+
+To see it all at bomvakt.com/konto, set a password:
+  sudo bomvakt password
+
+Restarted the bomvakt service. Follow it with:
+  journalctl -u bomvakt -f
 ```
 
 Afterwards: `/etc/bomvakt/key` = `bv_8c41e07b5d2a96f3e1b07c4d9a28f5e6b3c1d704`, `domain = web1.example.com`
@@ -110,11 +117,18 @@ This key is the login to your account, and it is shown only this once.
 Keep a copy somewhere safe: use it with `bomvakt setup` on your other
 servers, so they join the same account.
 
-Saved the key in /etc/bomvakt/key and domain = anna.example.org in /etc/bomvakt/bomvakt.conf.
-More websites on this server, each with its own access log? Run
-sudo bomvakt add-domain <domain> for each; it shows the line to add.
-To see it all at bomvakt.com/konto, set a password: sudo bomvakt password
-Restarted the bomvakt service. Follow it with: journalctl -u bomvakt -f
+Saved the key in /etc/bomvakt/key
+and domain = anna.example.org in /etc/bomvakt/bomvakt.conf.
+
+More websites on this server, each with its own access log?
+Run this for each; it shows the line to add:
+  sudo bomvakt add-domain <domain>
+
+To see it all at bomvakt.com/konto, set a password:
+  sudo bomvakt password
+
+Restarted the bomvakt service. Follow it with:
+  journalctl -u bomvakt -f
 ```
 
 Afterwards: `/etc/bomvakt/key` = `bv_8c41e07b5d2a96f3e1b07c4d9a28f5e6b3c1d704`, `domain = anna.example.org`
@@ -146,11 +160,18 @@ This key is the login to your account, and it is shown only this once.
 Keep a copy somewhere safe: use it with `bomvakt setup` on your other
 servers, so they join the same account.
 
-Saved the key in /etc/bomvakt/key and domain = shared.example.net in /etc/bomvakt/bomvakt.conf.
-More websites on this server, each with its own access log? Run
-sudo bomvakt add-domain <domain> for each; it shows the line to add.
-To see it all at bomvakt.com/konto, set a password: sudo bomvakt password
-Restarted the bomvakt service. Follow it with: journalctl -u bomvakt -f
+Saved the key in /etc/bomvakt/key
+and domain = shared.example.net in /etc/bomvakt/bomvakt.conf.
+
+More websites on this server, each with its own access log?
+Run this for each; it shows the line to add:
+  sudo bomvakt add-domain <domain>
+
+To see it all at bomvakt.com/konto, set a password:
+  sudo bomvakt password
+
+Restarted the bomvakt service. Follow it with:
+  journalctl -u bomvakt -f
 ```
 
 Afterwards: `/etc/bomvakt/key` = `bv_8c41e07b5d2a96f3e1b07c4d9a28f5e6b3c1d704`, `domain = shared.example.net`
@@ -182,11 +203,18 @@ This key is the login to your account, and it is shown only this once.
 Keep a copy somewhere safe: use it with `bomvakt setup` on your other
 servers, so they join the same account.
 
-Saved the key in /etc/bomvakt/key and domain = 203.0.113.7 in /etc/bomvakt/bomvakt.conf.
-More websites on this server, each with its own access log? Run
-sudo bomvakt add-domain <domain> for each; it shows the line to add.
-To see it all at bomvakt.com/konto, set a password: sudo bomvakt password
-Restarted the bomvakt service. Follow it with: journalctl -u bomvakt -f
+Saved the key in /etc/bomvakt/key
+and domain = 203.0.113.7 in /etc/bomvakt/bomvakt.conf.
+
+More websites on this server, each with its own access log?
+Run this for each; it shows the line to add:
+  sudo bomvakt add-domain <domain>
+
+To see it all at bomvakt.com/konto, set a password:
+  sudo bomvakt password
+
+Restarted the bomvakt service. Follow it with:
+  journalctl -u bomvakt -f
 ```
 
 Afterwards: `/etc/bomvakt/key` = `bv_8c41e07b5d2a96f3e1b07c4d9a28f5e6b3c1d704`, `domain = 203.0.113.7`
@@ -235,11 +263,18 @@ Which website runs on this server? Its access log is sent as that site.
   or type another domain or IP address to add it to the account
 Choose 1-2 or type a domain [1]: 2
 
-Saved the key in /etc/bomvakt/key and domain = shop.example.com in /etc/bomvakt/bomvakt.conf.
-More websites on this server, each with its own access log? Run
-sudo bomvakt add-domain <domain> for each; it shows the line to add.
-To see it all at bomvakt.com/konto, set a password: sudo bomvakt password
-Restarted the bomvakt service. Follow it with: journalctl -u bomvakt -f
+Saved the key in /etc/bomvakt/key
+and domain = shop.example.com in /etc/bomvakt/bomvakt.conf.
+
+More websites on this server, each with its own access log?
+Run this for each; it shows the line to add:
+  sudo bomvakt add-domain <domain>
+
+To see it all at bomvakt.com/konto, set a password:
+  sudo bomvakt password
+
+Restarted the bomvakt service. Follow it with:
+  journalctl -u bomvakt -f
 ```
 
 Afterwards: `/etc/bomvakt/key` = `bv_3f9a1c3f9a1c3f9a1c3f9a1c3f9a1c3f9a1c7d2e`, `domain = shop.example.com`
@@ -266,11 +301,18 @@ Which website runs on this server? Its access log is sent as that site.
 Choose 1-2 or type a domain [1]: blog.example.com
 Added blog.example.com to the account.
 
-Saved the key in /etc/bomvakt/key and domain = blog.example.com in /etc/bomvakt/bomvakt.conf.
-More websites on this server, each with its own access log? Run
-sudo bomvakt add-domain <domain> for each; it shows the line to add.
-To see it all at bomvakt.com/konto, set a password: sudo bomvakt password
-Restarted the bomvakt service. Follow it with: journalctl -u bomvakt -f
+Saved the key in /etc/bomvakt/key
+and domain = blog.example.com in /etc/bomvakt/bomvakt.conf.
+
+More websites on this server, each with its own access log?
+Run this for each; it shows the line to add:
+  sudo bomvakt add-domain <domain>
+
+To see it all at bomvakt.com/konto, set a password:
+  sudo bomvakt password
+
+Restarted the bomvakt service. Follow it with:
+  journalctl -u bomvakt -f
 ```
 
 Afterwards: `/etc/bomvakt/key` = `bv_3f9a1c3f9a1c3f9a1c3f9a1c3f9a1c3f9a1c7d2e`, `domain = blog.example.com`
@@ -304,11 +346,18 @@ Choose 1-2 or type a domain [1]: localhost
   Give a domain (example.com) or an IP address (203.0.113.7).
 Choose 1-2 or type a domain [1]: 
 
-Saved the key in /etc/bomvakt/key and domain = example.com in /etc/bomvakt/bomvakt.conf.
-More websites on this server, each with its own access log? Run
-sudo bomvakt add-domain <domain> for each; it shows the line to add.
-To see it all at bomvakt.com/konto, set a password: sudo bomvakt password
-Restarted the bomvakt service. Follow it with: journalctl -u bomvakt -f
+Saved the key in /etc/bomvakt/key
+and domain = example.com in /etc/bomvakt/bomvakt.conf.
+
+More websites on this server, each with its own access log?
+Run this for each; it shows the line to add:
+  sudo bomvakt add-domain <domain>
+
+To see it all at bomvakt.com/konto, set a password:
+  sudo bomvakt password
+
+Restarted the bomvakt service. Follow it with:
+  journalctl -u bomvakt -f
 ```
 
 Afterwards: `/etc/bomvakt/key` = `bv_3f9a1c3f9a1c3f9a1c3f9a1c3f9a1c3f9a1c7d2e`, `domain = example.com`
@@ -328,11 +377,18 @@ Choose 1 or 2: 1
 Key (bv_…): bv_3f9a1c3f9a1c3f9a1c3f9a1c3f9a1c3f9a1c7d2e
 Key accepted: account kim.
 
-Saved the key in /etc/bomvakt/key and domain = shop.example.com in /etc/bomvakt/bomvakt.conf.
-More websites on this server, each with its own access log? Run
-sudo bomvakt add-domain <domain> for each; it shows the line to add.
-To see it all at bomvakt.com/konto, set a password: sudo bomvakt password
-Restarted the bomvakt service. Follow it with: journalctl -u bomvakt -f
+Saved the key in /etc/bomvakt/key
+and domain = shop.example.com in /etc/bomvakt/bomvakt.conf.
+
+More websites on this server, each with its own access log?
+Run this for each; it shows the line to add:
+  sudo bomvakt add-domain <domain>
+
+To see it all at bomvakt.com/konto, set a password:
+  sudo bomvakt password
+
+Restarted the bomvakt service. Follow it with:
+  journalctl -u bomvakt -f
 ```
 
 Afterwards: `/etc/bomvakt/key` = `bv_3f9a1c3f9a1c3f9a1c3f9a1c3f9a1c3f9a1c7d2e`, `domain = shop.example.com`
@@ -379,11 +435,18 @@ This key is the login to your account, and it is shown only this once.
 Keep a copy somewhere safe: use it with `bomvakt setup` on your other
 servers, so they join the same account.
 
-Saved the key in /etc/bomvakt/key and domain = anna.example.org in /etc/bomvakt/bomvakt.conf.
-More websites on this server, each with its own access log? Run
-sudo bomvakt add-domain <domain> for each; it shows the line to add.
-To see it all at bomvakt.com/konto, set a password: sudo bomvakt password
-Restarted the bomvakt service. Follow it with: journalctl -u bomvakt -f
+Saved the key in /etc/bomvakt/key
+and domain = anna.example.org in /etc/bomvakt/bomvakt.conf.
+
+More websites on this server, each with its own access log?
+Run this for each; it shows the line to add:
+  sudo bomvakt add-domain <domain>
+
+To see it all at bomvakt.com/konto, set a password:
+  sudo bomvakt password
+
+Restarted the bomvakt service. Follow it with:
+  journalctl -u bomvakt -f
 ```
 
 Afterwards: `/etc/bomvakt/key` = `bv_8c41e07b5d2a96f3e1b07c4d9a28f5e6b3c1d704`, `domain = anna.example.org`
@@ -492,7 +555,9 @@ Backup of the old files: /var/lib/bomvakt/backup/20261121-093012
   example.com -> /var/log/nginx/example.com.access.log
   shop.example.com -> /var/log/nginx/shop.example.com.access.log
 Undo it all with: sudo bomvakt logs --undo
-Restarted the bomvakt service. Follow it with: journalctl -u bomvakt -f
+
+Restarted the bomvakt service. Follow it with:
+  journalctl -u bomvakt -f
 ```
 
 Afterwards: each site has its own log in nginx and under `[logs]`; the shared `access.log` keeps only requests no site answered (often scanners on the IP address), still sent as `example.com`.
