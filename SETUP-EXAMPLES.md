@@ -32,6 +32,8 @@ Apache's `vhost_combined` format the site is read from each line instead.
 12. [Bomvakt cannot be reached](#bomvakt-cannot-be-reached)
 13. [Not run as root](#not-run-as-root)
 14. [No terminal to answer in](#no-terminal-to-answer-in)
+15. [Several sites share one log](#several-sites-share-one-log)
+16. [Check first with logs --dry-run](#check-first-with-logs---dry-run)
 
 ## New user, everything right the first time
 
@@ -429,3 +431,120 @@ bomvakt: no answer (no terminal); run: sudo bomvakt setup
 ```
 
 Afterwards: nothing saved, the service keeps waiting for a key.
+
+## Several sites share one log
+
+The server runs two sites that both write to nginx's shared `access.log`. Setup finds them in `/etc/nginx/sites-enabled`, and on yes gives each its own log the way certbot edits a config: it shows the change, backs up the files, runs `nginx -t`, and reloads only when the test passes (on a failed test every file is put back). The same runs later with `sudo bomvakt logs`; `--dry-run` only shows it, `--undo` takes it out again.
+
+```console
+Bomvakt setup (https://bomvakt.com)
+
+  1) Existing user: I have a key
+  2) Create a new user
+
+Choose 1 or 2: 1
+
+Key (bv_…): bv_3f9a1c3f9a1c3f9a1c3f9a1c3f9a1c3f9a1c7d2e
+Key accepted: account kim.
+
+Which website runs on this server? Its access log is sent as that site.
+  1) example.com
+  2) shop.example.com
+  or type another domain or IP address to add it to the account
+Choose 1-2 or type a domain [1]: 1
+
+Saved the key in /etc/bomvakt/key and domain = example.com in /etc/bomvakt/bomvakt.conf.
+More websites on this server, each with its own access log? Run
+sudo bomvakt add-domain <domain> for each; it shows the line to add.
+To see it all at bomvakt.com/konto, set a password: sudo bomvakt password
+
+web server sites:
+  example.com, shop.example.com share /var/log/nginx/access.log (all sent as example.com)
+Give each site its own log now? (yes/no) [yes]: 
+
+These sites write to one log, /var/log/nginx/access.log:
+  1) example.com
+  2) shop.example.com
+Each one gets its own log next to it, <site>.access.log.
+
+--- /etc/nginx/sites-available/example.com
++++ /etc/nginx/sites-available/example.com (new)
+@@ -2,4 +2,6 @@
+     listen 443 ssl; # managed by Certbot
+     server_name example.com www.example.com;
++    # bomvakt-added (undo: sudo bomvakt logs --undo)
++    access_log /var/log/nginx/example.com.access.log;
+     root /var/www/example.com;
+--- /etc/nginx/sites-available/shop.example.com
++++ /etc/nginx/sites-available/shop.example.com (new)
+@@ -1,4 +1,6 @@
+ server {
+     server_name shop.example.com;
++    # bomvakt-added (undo: sudo bomvakt logs --undo)
++    access_log /var/log/nginx/shop.example.com.access.log;
+     location / { proxy_pass http://127.0.0.1:3000; }
+and in /etc/bomvakt/bomvakt.conf, under [logs]:
+  /var/log/nginx/example.com.access.log = example.com
+  /var/log/nginx/shop.example.com.access.log = shop.example.com
+
+Reloaded nginx.
+Backup of the old files: /var/lib/bomvakt/backup/20261121-093012
+  example.com -> /var/log/nginx/example.com.access.log
+  shop.example.com -> /var/log/nginx/shop.example.com.access.log
+Undo it all with: sudo bomvakt logs --undo
+Restarted the bomvakt service. Follow it with: journalctl -u bomvakt -f
+```
+
+Afterwards: each site has its own log in nginx and under `[logs]`; the shared `access.log` keeps only requests no site answered (often scanners on the IP address), still sent as `example.com`.
+
+## Check first with logs --dry-run
+
+Three sites share nginx's `access.log`. `sudo bomvakt logs --dry-run` shows what `sudo bomvakt logs` would do and changes nothing: no files, no backup, no reload, no account changes (sites not yet on the account are checked and added only by the real run). The same diff, the same skips.
+
+`shop.example.com` already writes to the shared log with its own format, `main buffer=32k`: its new line keeps that format, and the old line stays as a `# bomvakt-off:` comment so `--undo` can bring it back. `example.com` gets a line in both of its blocks, the HTTPS one and Certbot's redirect. `old.example.com` is a whole `server { … }` on one line, which bomvakt reads but never edits, so it is skipped with a link to doing it by hand.
+
+```console
+$ sudo bomvakt logs --dry-run
+These sites write to one log, /var/log/nginx/access.log:
+  1) example.com
+  2) old.example.com
+  3) shop.example.com
+Each one gets its own log next to it, <site>.access.log.
+Which? all, none, or numbers like 1,3 [all]: 
+Skipped old.example.com: /etc/nginx/sites-available/old.example.com is laid out in a way bomvakt does not edit. How to do it by hand: https://bomvakt.com/konto/hjalp/sajtlogg
+
+--- /etc/nginx/sites-available/example.com
++++ /etc/nginx/sites-available/example.com (new)
+@@ -2,4 +2,6 @@
+     listen 443 ssl; # managed by Certbot
+     server_name example.com www.example.com;
++    # bomvakt-added (undo: sudo bomvakt logs --undo)
++    access_log /var/log/nginx/example.com.access.log;
+     root /var/www/example.com;
+ }
+@@ -10,4 +12,6 @@
+     listen 80;
+     server_name example.com www.example.com;
++    # bomvakt-added (undo: sudo bomvakt logs --undo)
++    access_log /var/log/nginx/example.com.access.log;
+     return 404; # managed by Certbot
+ }
+--- /etc/nginx/sites-available/shop.example.com
++++ /etc/nginx/sites-available/shop.example.com (new)
+@@ -1,5 +1,7 @@
+ server {
+     server_name shop.example.com;
+-    access_log /var/log/nginx/access.log main buffer=32k;
++    # bomvakt-added (undo: sudo bomvakt logs --undo)
++    access_log /var/log/nginx/shop.example.com.access.log main buffer=32k;
++    # bomvakt-off: access_log /var/log/nginx/access.log main buffer=32k;
+     location / { proxy_pass http://127.0.0.1:3000; }
+ }
+and in /etc/bomvakt/bomvakt.conf, under [logs]:
+  /var/log/nginx/example.com.access.log = example.com
+  /var/log/nginx/shop.example.com.access.log = shop.example.com
+
+Dry run: nothing changed. Run without --dry-run to make these changes.
+```
+
+Afterwards: nothing changed. Run `sudo bomvakt logs` to make the changes (it asks once more before writing), or put `old.example.com` on its own log by hand first.

@@ -102,6 +102,30 @@ them under `[logs]` in `bomvakt.conf` (`sudo bomvakt add-domain` prints the
 line). With Apache's `vhost_combined` format the site is read from each
 line instead, so one shared log works too.
 
+Most servers write every site to one shared `access.log`. `bomvakt status`
+and `setup` read the enabled nginx and Apache site configs and say when
+several sites share a log, or when a site's own log is not followed.
+`sudo bomvakt logs` fixes it the way certbot edits a config:
+
+1. lists the sites that share a log and asks which to split (all by default);
+2. shows every change as a diff and asks once more;
+3. backs up the files to `/var/lib/bomvakt/backup/`;
+4. adds `access_log …/<site>.access.log;` (nginx) or `CustomLog … combined`
+   (Apache) after `server_name`/`ServerName` in each of the site's blocks,
+   and comments out the block's line to the shared log (both servers write
+   to every log line they have), each change marked `# bomvakt-…`;
+5. runs `nginx -t` or `apachectl configtest`, and puts every file back and
+   reloads nothing if it fails;
+6. reloads the web server, maps the new logs under `[logs]`, adds them to
+   the `bomvakt-bots` fail2ban jail if there is one, and restarts the agent.
+
+`--dry-run` only shows the changes; `--undo` takes them out again (the log
+files are kept). It leaves alone files written by a tool ("managed by
+Ansible", "do not edit"), one-line blocks and servers run by a hosting panel
+(Plesk, cPanel, Virtualmin, ISPConfig, DirectAdmin): add the line by hand
+there. The distro's logrotate rule already covers new files in the log
+folder.
+
 ### Following the logs
 
 Your web server writes one line per request to its access log. The agent
@@ -300,7 +324,8 @@ sudo systemctl restart bomvakt
 ## Usage
 
 ```sh
-sudo bomvakt status               # account, domains, logs, last send
+sudo bomvakt status               # account, domains, logs, shared logs, last send
+sudo bomvakt logs                 # give each site its own log (--dry-run, --undo)
 sudo bomvakt setup                # create an account, or switch to another key
 sudo bomvakt add-domain shop.example.com --name "Webshop"
 sudo bomvakt name shop.example.com Webshop   # display name; no name = the domain
