@@ -18,6 +18,7 @@
 #   /usr/lib/bomvakt/install.sh              this script (update, offline uninstall)
 #   /usr/local/bin/bomvakt                   link to the agent: `sudo bomvakt …`
 #   /etc/systemd/system/bomvakt.service      the service
+#   /usr/local/share/man/man1/bomvakt.1      the manual: `man bomvakt`
 #   /etc/bomvakt/bomvakt.conf                config (kept by uninstall)
 #   /etc/bomvakt/key                         API key (kept by uninstall)
 #   /var/lib/bomvakt                         state (systemd StateDirectory)
@@ -32,6 +33,7 @@ CONF_DIR=/etc/bomvakt
 KEY_FILE=/etc/bomvakt/key
 BIN_LINK=/usr/local/bin/bomvakt
 UNIT=/etc/systemd/system/bomvakt.service
+MAN_PAGE=/usr/local/share/man/man1/bomvakt.1
 STATE_DIR=/var/lib/bomvakt
 ACTION="${1:-install}"
 
@@ -113,6 +115,7 @@ do_install() {
     fetch bomvakt.service "$TMP/bomvakt.service"
     fetch bomvakt.conf "$TMP/bomvakt.conf"
     fetch install.sh "$TMP/install.sh"
+    fetch bomvakt.1 "$TMP/bomvakt.1"
     python3 -m py_compile "$TMP/bomvakt.py"
     rm -rf "$TMP/__pycache__"
 
@@ -121,6 +124,11 @@ do_install() {
     install -m 0755 "$TMP/install.sh" "$LIB_DIR/install.sh"
     install -m 0644 "$TMP/bomvakt.service" "$UNIT"
     ln -sf "$LIB_DIR/bomvakt.py" "$BIN_LINK"
+    install -d -m 0755 "$(dirname "$MAN_PAGE")"
+    install -m 0644 "$TMP/bomvakt.1" "$MAN_PAGE"
+    if command -v mandb >/dev/null 2>&1; then
+        mandb -q 2>/dev/null || true
+    fi
     install -d -m 0755 "$CONF_DIR"
     if [ -f "$CONF_DIR/bomvakt.conf" ]; then
         say "keeping existing $CONF_DIR/bomvakt.conf"
@@ -164,6 +172,7 @@ do_install() {
     say "status:    sudo bomvakt status"
     say "log:       journalctl -u bomvakt -f"
     say "config:    $CONF_DIR/bomvakt.conf"
+    say "manual:    man bomvakt"
     say "update:    sudo bomvakt update"
     say "uninstall: sudo $LIB_DIR/install.sh uninstall"
 }
@@ -174,6 +183,7 @@ do_uninstall() {
     fi
     rm -f "$UNIT"
     rm -f "$BIN_LINK"
+    rm -f "$MAN_PAGE"
     systemctl daemon-reload
     systemctl reset-failed bomvakt.service 2>/dev/null || true
     rm -rf "$LIB_DIR"

@@ -204,7 +204,8 @@ you can read it, or run any line by hand. On `install` it:
 1. checks that it runs as root on a system with systemd;
 2. checks for Python 3.8+, and installs `python3` with `apt-get` or `dnf` if
    it is missing;
-3. downloads `bomvakt.py`, `bomvakt.service`, `bomvakt.conf` and itself into
+3. downloads `bomvakt.py`, `bomvakt.service`, `bomvakt.conf`, the manual
+   `bomvakt.1` and itself into
    a temporary directory, and checks that `bomvakt.py` compiles;
 4. copies them into place (see below), keeping an existing config and key;
 5. enables and starts the service, and shows the log if it fails to start;
@@ -222,6 +223,7 @@ These are the only paths it touches:
 | `/usr/lib/bomvakt/install.sh` | the installer, for update and offline uninstall | removed | removed |
 | `/usr/local/bin/bomvakt` | link to the agent, the `bomvakt` command | removed | removed |
 | `/etc/systemd/system/bomvakt.service` | the service | removed | removed |
+| `/usr/local/share/man/man1/bomvakt.1` | the manual, `man bomvakt` | removed | removed |
 | `/var/lib/bomvakt` | state: how far each log was read | removed | removed |
 | `/etc/bomvakt/bomvakt.conf` | your config | **kept** | removed |
 | `/etc/bomvakt/key` | your account's key | **kept** | removed |
@@ -333,6 +335,7 @@ sudo bomvakt password             # web login password; can also turn off two-st
 bomvakt parse /var/log/nginx/access.log    # how lines are read; sends nothing
 journalctl -u bomvakt -f          # follow its log
 sudo systemctl restart bomvakt    # after editing the config
+man bomvakt                       # the manual
 bomvakt --version
 ```
 
@@ -414,8 +417,9 @@ systemd. Run the agent directly instead:
 
 ## Development
 
-Everything is in four files: `install.sh`, `bomvakt.py`, `bomvakt.service`
-and `bomvakt.conf`. Run the agent in the foreground against any file, no
+Everything is in five files: `install.sh`, `bomvakt.py`, `bomvakt.service`,
+`bomvakt.conf` and the manual `bomvakt.1` (read it in place with
+`man ./bomvakt.1`; keep it in step with the commands). Run the agent in the foreground against any file, no
 root needed:
 
 ```sh

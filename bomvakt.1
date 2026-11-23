@@ -1,0 +1,233 @@
+.\" Manual page for the Bomvakt agent. View it in place with: man ./bomvakt.1
+.TH BOMVAKT 1 "2026-11-23" "bomvakt 0.5.3" "Bomvakt"
+.SH NAME
+bomvakt \- send a web server's access logs to Bomvakt
+.SH SYNOPSIS
+.B bomvakt
+.RB [ \-\-conf
+.IR file ]
+.RB [ \-\-key\-file
+.IR file ]
+.I command
+.RI [ options ]
+.br
+.B bomvakt \-\-version
+.SH DESCRIPTION
+.B bomvakt
+follows the web server's access logs (nginx or Apache) and sends every line
+to Bomvakt, where the account at
+.I https://bomvakt.com/konto
+shows who hits the server, bots that never run JavaScript included, and
+which addresses to ban.
+.PP
+The agent runs as the systemd service
+.BR bomvakt ,
+which only reads the logs and sends them. Commands that use the key or change files
+(\fBsetup\fR, \fBadd\-domain\fR, \fBpassword\fR, \fBlogs\fR, \fBupdate\fR) need root.
+Nothing is changed without showing it and asking first.
+.SH COMMANDS
+.TP
+.B setup
+Create an account, or join an existing one with its key
+.RI ( bv_ ...),
+and choose which website this server's log belongs to. Saves the key in
+.I /etc/bomvakt/key
+and the domain in the config, uses the Apache log when the server has no
+nginx, prints the tracking code for the site, and offers to give each
+website its own log.
+.TP
+.BI add\-domain " domain " "\fR[\fB\-\-name \fItext\fR]"
+Add a domain or IP address to the account, print its tracking code, and
+offer to run
+.B bomvakt logs
+so the agent reads a log of its own for it. Until then the agent sends
+nothing for the new site.
+.TP
+.BI name " domain " "\fR[\fItext\fR]"
+Set the name a site is shown with in the account. No text sets it back to
+the domain.
+.TP
+.B password
+Set the password for the web login at bomvakt.com/konto. The key on this
+server proves the account is yours, so this also works without an email
+address. Can turn two-step login off when the phone is lost. Logs out
+every web session of the account.
+.TP
+.B status
+Version, account, domains, each log with its domain and whether it can be
+read, websites that share a log or have one the agent does not follow,
+and the service's last send.
+.TP
+.B logs
+Give each website on the server its own access log, the way certbot edits
+a config: finds the nginx server blocks and Apache VirtualHosts, shows
+the change as a diff, asks, backs up to
+.IR /var/lib/bomvakt/backup ,
+edits (lines marked
+.I # bomvakt\-added
+and
+.IR "# bomvakt\-off:" ),
+tests the config, rolls back on a failed test, reloads the web server,
+and adds the logs under
+.B [logs]
+in the config. Skips files written by control panels and other tools.
+.RS
+.TP
+.B \-\-dry\-run
+Only show what would change.
+.TP
+.B \-\-yes
+Do not ask; take every website.
+.TP
+.B \-\-undo
+Take every change out again.
+.RE
+.TP
+.B update
+Install the newest version. Keeps the config and the key.
+.TP
+.BI parse " file"
+Show how the lines of a log file are read: the first lines as they would
+be sent, and how many could not be read. Sends nothing.
+.TP
+.B run
+Follow the logs and send them. This is what the service runs; it is not
+needed by hand.
+.SH OPTIONS
+.TP
+.BI \-\-conf " file"
+The config file. Default:
+.IR /etc/bomvakt/bomvakt.conf .
+.TP
+.BI \-\-key\-file " file"
+The file holding the account key. Default:
+.IR /etc/bomvakt/key .
+.TP
+.B \-\-version
+Print the version and exit.
+.SH CONFIGURATION
+.I /etc/bomvakt/bomvakt.conf
+is an INI file. After a change: \fBsudo systemctl restart bomvakt\fR.
+.TP
+.B [bomvakt]
+.RS
+.TP
+.B domain
+The website the logs under
+.B logs
+belong to. Set by
+.BR setup .
+.TP
+.B logs
+Access logs to follow, comma\-separated. Their lines are sent as
+.BR domain .
+Default
+.IR /var/log/nginx/access.log ;
+on a server with Apache and no nginx the agent uses the Apache log
+instead and saves that here.
+.TP
+.B interval
+Seconds between summaries in the journal (at least 10). Default 300.
+.TP
+.B server
+Where to send. Leave as is.
+.RE
+.TP
+.B [logs]
+One line per website with a log of its own,
+.IR "path " = " domain" :
+.PP
+.RS
+.nf
+[logs]
+/var/log/nginx/shop.example.com.access.log = shop.example.com
+/var/log/apache2/blog.example.com.access.log = blog.example.com
+.fi
+.RE
+.PP
+Every domain has to be on the account first
+.RB ( add\-domain );
+lines for a domain that is not are dropped by the server.
+.SH FILES
+.TP
+.I /usr/lib/bomvakt/bomvakt.py
+The agent.
+.TP
+.I /usr/lib/bomvakt/install.sh
+The installer, used by \fBupdate\fR and for uninstalling.
+.TP
+.I /usr/local/bin/bomvakt
+Link to the agent.
+.TP
+.I /etc/systemd/system/bomvakt.service
+The service.
+.TP
+.I /etc/bomvakt/bomvakt.conf
+The config. Kept by uninstall.
+.TP
+.I /etc/bomvakt/key
+The account key, readable by root only. Kept by uninstall. Anyone with the
+key can send logs to the account and set its web password: keep a copy
+somewhere safe, and never share it.
+.TP
+.I /var/lib/bomvakt
+State: how far each log has been read, lines waiting to be sent, and
+backups made by \fBlogs\fR.
+.SH ENVIRONMENT
+.TP
+.B BOMVAKT_SERVER
+Send to this server instead of the one in the config (testing).
+.SH EXAMPLES
+Install and set up:
+.PP
+.RS
+.nf
+curl \-fsSL https://bomvakt.com/install.sh | sudo sh
+.fi
+.RE
+.PP
+Add another website on the same server and give it its own log:
+.PP
+.RS
+.nf
+sudo bomvakt add\-domain shop.example.com \-\-name "Webshop"
+sudo bomvakt logs \-\-dry\-run
+sudo bomvakt logs
+.fi
+.RE
+.PP
+See what the agent does:
+.PP
+.RS
+.nf
+sudo bomvakt status
+journalctl \-u bomvakt \-f
+.fi
+.RE
+.PP
+Uninstall (keeps config and key), or remove everything:
+.PP
+.RS
+.nf
+sudo /usr/lib/bomvakt/install.sh uninstall
+sudo /usr/lib/bomvakt/install.sh purge
+.fi
+.RE
+.SH PRIVACY
+The agent sends each log line as the web server wrote it: time, IP address,
+request with query string, status, size, referrer and user agent. Bomvakt
+keeps the lines for 30 days, for the account only, to decide what to ban.
+.SH SEE ALSO
+.BR systemctl (1),
+.BR journalctl (1),
+.BR nginx (8),
+.BR apache2ctl (8),
+.BR fail2ban\-client (1),
+.BR ipset (8),
+.BR ufw (8)
+.PP
+.I https://bomvakt.com
+and
+.I https://github.com/torvanger/bomvakt\-linux
+.SH AUTHOR
+Torvanger AB.
