@@ -43,7 +43,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-VERSION = "0.6.1"
+VERSION = "0.6.2"
 DEFAULT_CONF = "/etc/bomvakt/bomvakt.conf"
 DEFAULT_KEY = "/etc/bomvakt/key"
 DEFAULT_SERVER = "https://bomvakt.com"
@@ -804,6 +804,49 @@ def apply_robots(reply, dry_run=False):
     return done, errors
 
 
+ROOT_RE = re.compile(r"^/[A-Za-z0-9._@+/-]{0,230}$")
+
+
+def web_roots(domains):
+    """{domain: {"root": dir, "file": bool}} for the given domains, from the
+    root / DocumentRoot of the enabled server blocks that name them (www.
+    counts as the domain). file = a robots.txt file exists there; a site that
+    serves one without it makes it on the fly (WordPress and the like)."""
+    want = set(domains)
+    out = {}
+    try:
+        blocks = vhosts()
+    except Exception as e:   # never let a config we cannot read stop the rules job
+        log.warning("cannot read the web server configs: %s", e)
+        return out
+    for b in blocks:
+        root = (b.get("root") or "").rstrip("/")
+        if not root or "$" in root or not ROOT_RE.match(root) or "/../" in root + "/":
+            continue
+        for n in b["names"]:
+            d = n.lower().rstrip(".")
+            d = d[4:] if d.startswith("www.") and d[4:] in want else d
+            if d in want and d not in out:
+                out[d] = {"root": root, "file": os.path.isfile(os.path.join(root, "robots.txt"))}
+    return out
+
+
+def report_roots(conf, key, st):
+    """Tell Bomvakt each domain's web root (POST /api/roots), so the website
+    can suggest the robots.txt path. Only when it changed since last time."""
+    roots = web_roots(agent_domains(conf))
+    sig = json.dumps(roots, sort_keys=True)
+    if not roots or st.get("roots_sent") == sig:
+        st["roots"] = roots
+        return
+    try:
+        api(conf["server"], "/api/roots", {"roots": roots}, key=key)
+        st["roots_sent"] = sig
+    except ApiError as e:
+        log.warning("could not report the web roots: %s", e)
+    st["roots"] = roots
+
+
 def load_rules_state():
     try:
         with open(RULES_STATE, encoding="utf-8") as fh:
@@ -914,6 +957,9 @@ def parse_nginx(lines):
             m = re.match(r"access_log\s+([^\s;]+)\s*([^;]*)", s)
             if m:
                 cur["logs"].append((i, m.group(1).strip('"\''), m.group(2).strip()))
+            m = re.match(r"root\s+([^;]+);", s)
+            if m and not cur.get("root"):
+                cur["root"] = m.group(1).strip().strip('"\'')
         for pos, ch in enumerate(line):
             if ch == "{":
                 depth += 1
@@ -965,6 +1011,9 @@ def parse_apache(lines):
             m = re.match(r"CustomLog\s+(\"[^\"]*\"|\S+)\s*(.*)$", s, re.I)
             if m:
                 cur["logs"].append((i, m.group(1).strip('"'), m.group(2).strip()))
+            m = re.match(r"DocumentRoot\s+(\"[^\"]*\"|\S+)\s*$", s, re.I)
+            if m and not cur.get("root"):
+                cur["root"] = m.group(1).strip('"')
     return blocks
 
 
@@ -1774,11 +1823,14 @@ def cmd_rules(args, conf):
         if not args.dry_run:
             save_rules_state(st)
         sys.exit("bomvakt: rules: %s" % e)
+    if not args.dry_run:
+        report_roots(conf, key, st)
     if reply is None:
         st.pop("error", None)
         save_rules_state(st)
         say("rules unchanged since the last check (%s)" % st.get("message", "nothing applied"))
         return
+    st["robots"] = sorted(str(r.get("domain", "")) for r in reply.get("robots") or [])
     errors, changes, msgs = [], [], []
     try:
         changed, msg = apply_rate(reply, args.dry_run)
@@ -1813,6 +1865,7 @@ def cmd_rules(args, conf):
         sys.exit("bomvakt: rules: " + "\nbomvakt: rules: ".join(errors))
 
 def cmd_status(args, conf):
+    me = None
     print("bomvakt %s" % VERSION)
     print("server:  %s" % conf["server"])
     key = read_key(args.key_file)
@@ -1859,6 +1912,14 @@ def cmd_status(args, conf):
                                             time.strftime("%Y-%m-%d %H:%M", time.localtime(rs["checked"]))))
             if rs.get("error"):
                 print("         last error: %s" % rs["error"].split("\n")[0])
+            # robots.txt the agent could write but nobody turned on: say where.
+            managed = set(rs.get("robots", []))
+            ids = {s["domain"]: s["id"] for s in (me or {}).get("sites", [])}
+            for d, r in sorted((rs.get("roots") or {}).items()):
+                if d in managed or d not in ids:
+                    continue
+                print("robots:  %s not managed; suggested path %s/robots.txt," % (d, r["root"]))
+                print("         turn it on at %s/konto/sajt/%s/robots" % (conf["server"], ids[d]))
         elif os.geteuid() != 0:
             print("rules:   (run with sudo to see)")
         else:

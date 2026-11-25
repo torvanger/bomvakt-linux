@@ -221,7 +221,11 @@ then every 5 minutes (`bomvakt-rules.service`, a oneshot). It:
 3. runs `nginx -t`; if that fails, puts the old file back and logs why;
 4. reloads nginx;
 5. writes each domain's robots.txt to the path set on the domain's
-   Robots.txt tab at bomvakt.com, when the content changed.
+   Robots.txt tab at bomvakt.com, when the content changed;
+6. reports each domain's web root (`root` / `DocumentRoot` from the
+   enabled server blocks) to Bomvakt when it changed, so the website can
+   suggest the robots.txt path; `bomvakt status` shows that suggestion for
+   domains whose robots.txt is not managed yet.
 
 It never touches a rate-limit file it did not write (each starts with
 `# Bomvakt rate limits`), and skips the rate limits on a server without

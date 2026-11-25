@@ -94,6 +94,8 @@ touches a file it did not write. And robots.txt, written to the path set on
 the domain's Robots.txt tab at bomvakt.com (never through a link; the file
 that was there first is copied to
 .IR /var/lib/bomvakt\-rules/robots\-backup ).
+It also reports each domain's web root to Bomvakt, so the website can
+suggest the robots.txt path.
 The timer
 .B bomvakt\-rules.timer
 runs it every 5 minutes.
