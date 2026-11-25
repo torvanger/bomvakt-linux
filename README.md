@@ -19,9 +19,11 @@ ban.
   on where it stopped, so updates lose nothing.
 * Runs as a throwaway user that can read the logs and nothing else.
 * Applies the rules you make at bomvakt.com/konto/regler that it supports,
-  so far **nginx rate limits** (429), from a small root job every 5 minutes:
-  one file of its own in `/etc/nginx/conf.d`, tested with `nginx -t` before
-  nginx reloads, and put back as it was if the test fails.
+  so far **nginx rate limits** (429) and **robots.txt**, from a small root
+  job every 5 minutes: rate limits in one file of its own in
+  `/etc/nginx/conf.d`, tested with `nginx -t` before nginx reloads and put
+  back as it was if the test fails; robots.txt where you set a path for the
+  domain on bomvakt.com.
 * Needs only Python 3.8+ and its standard library: no pip, no packages, no
   compiler.
 
@@ -41,10 +43,11 @@ them on your behalf, to protect your server.
 
 * It does not edit your web server's or firewall's own config. What it
   applies goes in files of its own (`/etc/nginx/conf.d/bomvakt-*.conf`),
-  and only once you make a rule; `rules = off` in the config stops it.
+  and only once you make a rule; it writes robots.txt only where you gave
+  it a path. `rules = off` in the config stops it.
 * The log follower never runs as root. Only the rules job does, because it
-  writes in `/etc/nginx/conf.d` and reloads nginx; the rest of the system
-  is read-only to it.
+  writes in `/etc/nginx/conf.d`, reloads nginx and writes robots.txt into
+  web roots; `/usr`, `/boot` and the rest of `/etc` are read-only to it.
 * It does not update itself. You decide when: `sudo bomvakt update`.
 
 ----
@@ -216,13 +219,23 @@ then every 5 minutes (`bomvakt-rules.service`, a oneshot). It:
    (http level: nothing goes in your server blocks), or removes the file
    when you have no rate rules left;
 3. runs `nginx -t`; if that fails, puts the old file back and logs why;
-4. reloads nginx.
+4. reloads nginx;
+5. writes each domain's robots.txt to the path set on the domain's
+   Robots.txt tab at bomvakt.com, when the content changed.
 
-It never touches a file it did not write (each starts with
-`# Bomvakt rate limits`), and does nothing on a server without nginx.
-Under systemd only `/etc/nginx/conf.d`, `/var/log/nginx` and
-`/var/lib/nginx` are writable to it. A server block with a `limit_req` of
-its own does not inherit the limits.
+It never touches a rate-limit file it did not write (each starts with
+`# Bomvakt rate limits`), and skips the rate limits on a server without
+nginx. A server block with a `limit_req` of its own does not inherit them.
+
+robots.txt is written only to a path ending in `/robots.txt`, in a
+directory that already exists, never through a symbolic link, through a
+fresh temporary file renamed over the old one, keeping the old file's
+owner (mode 0644). The first time, the file that was there is copied to
+`/var/lib/bomvakt-rules/robots-backup/<domain>.robots.txt`. Clearing the
+path on bomvakt.com stops it; the file on the server stays.
+
+Under systemd `/usr`, `/boot` and `/etc` (except `/etc/nginx/conf.d`)
+are read-only to it.
 
 ```sh
 sudo bomvakt rules --dry-run      # show what it would write
@@ -260,7 +273,7 @@ These are the only paths it touches:
 | `/etc/systemd/system/bomvakt.service` | the service | removed | removed |
 | `/etc/systemd/system/bomvakt-rules.service`, `.timer` | the rules job | removed | removed |
 | `/etc/nginx/conf.d/bomvakt-rate.conf` | rate limits, written by the rules job | removed | removed |
-| `/var/lib/bomvakt-rules` | the rules job's state | removed | removed |
+| `/var/lib/bomvakt-rules` | the rules job's state, and robots.txt backups | removed | removed |
 | `/usr/local/share/man/man1/bomvakt.1` | the manual, `man bomvakt` | removed | removed |
 | `/var/lib/bomvakt` | state: how far each log was read | removed | removed |
 | `/etc/bomvakt/bomvakt.conf` | your config | **kept** | removed |
@@ -336,7 +349,7 @@ interval = 300
 # Where to send. Leave as is.
 server = https://bomvakt.com
 
-# Apply the rules from bomvakt.com/konto/regler (nginx rate limits). on | off
+# Apply the rules from bomvakt.com/konto/regler (nginx rate limits, robots.txt). on | off
 rules = on
 ```
 

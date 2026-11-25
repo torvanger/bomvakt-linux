@@ -15,7 +15,8 @@ and decide what to ban.
     bomvakt logs               give each website its own access log, like certbot:
                                shows the change, backs up, tests, reloads (--undo)
     bomvakt rules              fetch the rules made at bomvakt.com/konto/regler and
-                               apply what this agent supports (nginx rate limits);
+                               apply what this agent supports (nginx rate limits,
+                               robots.txt);
                                a timer runs it every 5 minutes (--dry-run, --force)
     bomvakt update             install the latest version (keeps config and key)
     bomvakt parse FILE         show how log lines are read (no sending)
@@ -42,7 +43,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-VERSION = "0.6.0"
+VERSION = "0.6.1"
 DEFAULT_CONF = "/etc/bomvakt/bomvakt.conf"
 DEFAULT_KEY = "/etc/bomvakt/key"
 DEFAULT_SERVER = "https://bomvakt.com"
@@ -583,12 +584,16 @@ def run(conf, key_file, conf_path=DEFAULT_CONF):
 # `bomvakt rules` as root from bomvakt-rules.timer: the log-following
 # service has no rights to change the system, and keeps it that way.
 # Everything written is a file of our own (conf.d); nothing in the web
-# server's own config is touched. Supported so far: nginx rate limits.
+# server's own config is touched. Supported so far: nginx rate limits, and
+# robots.txt where the site has a path set on bomvakt.com.
 
 RATE_DIR = "/etc/nginx/conf.d"
 RATE_PREFIX = "bomvakt-"
 RATE_MARK = "# Bomvakt rate limits"
 RULES_STATE = "/var/lib/bomvakt-rules/state.json"
+ROBOTS_BACKUP = "/var/lib/bomvakt-rules/robots-backup"
+ROBOTS_MAX = 512 << 10
+ROBOTS_PATH_RE = re.compile(r"^/[A-Za-z0-9._@+/-]*/robots\.txt$")
 NGINX_TEST = ["nginx", "-t"]
 NGINX_RELOAD = (["systemctl", "reload", "nginx"], ["nginx", "-s", "reload"])
 
@@ -721,6 +726,82 @@ def apply_rate(reply, dry_run=False):
     if not want:
         return True, "removed %s (no rate limits left), nginx reloaded" % path
     return True, "wrote %s (%d rate limits), nginx reloaded" % (path, n)
+
+
+def write_robots(path, text):
+    """Write a robots.txt as root into a directory a web user may own: through
+    a fresh temp file (O_EXCL, never through a planted link), owned like the
+    old file or else like the directory, mode 0644, then renamed over it."""
+    import tempfile
+    d = os.path.dirname(path)
+    try:
+        st = os.lstat(path)
+        uid, gid = st.st_uid, st.st_gid
+    except FileNotFoundError:
+        st = os.stat(d)
+        uid, gid = st.st_uid, st.st_gid
+    fd, tmp = tempfile.mkstemp(prefix=".robots.", suffix=".bomvakt-tmp", dir=d)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        os.chmod(tmp, 0o644)
+        os.chown(tmp, uid, gid)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def apply_robots(reply, dry_run=False):
+    """Write each site's robots.txt to the path set on bomvakt.com when it
+    changed. The first time, the file that was there is copied to
+    ROBOTS_BACKUP. Returns ([messages], [errors]); messages only for changes."""
+    done, errors = [], []
+    for r in reply.get("robots") or []:
+        domain = str(r.get("domain", ""))
+        path = str(r.get("path", ""))
+        text = str(r.get("content", ""))
+        if not ROBOTS_PATH_RE.match(path) or "/../" in path or "/./" in path or "//" in path:
+            errors.append("robots.txt for %s: unusable path %r" % (domain, path))
+            continue
+        if len(text.encode("utf-8")) > ROBOTS_MAX:
+            errors.append("robots.txt for %s: too large" % domain)
+            continue
+        d = os.path.dirname(path)
+        if not os.path.isdir(d) or os.path.islink(d):
+            errors.append("robots.txt for %s: %s is not a directory here" % (domain, d))
+            continue
+        old = None
+        if os.path.lexists(path):
+            if os.path.islink(path) or not os.path.isfile(path):
+                errors.append("robots.txt for %s: %s is a link or not a file, left alone" % (domain, path))
+                continue
+            try:
+                with open(path, encoding="utf-8", errors="replace") as fh:
+                    old = fh.read(ROBOTS_MAX + 1)
+            except OSError as e:
+                errors.append("robots.txt for %s: cannot read %s: %s" % (domain, path, e))
+                continue
+        if old == text:
+            continue
+        if dry_run:
+            done.append("would write %s (%d lines)" % (path, len(text.splitlines())))
+            continue
+        try:
+            backup = os.path.join(ROBOTS_BACKUP, re.sub(r"[^A-Za-z0-9._-]", "_", domain) + ".robots.txt")
+            saved = old is not None and not os.path.exists(backup)
+            if saved:
+                os.makedirs(ROBOTS_BACKUP, mode=0o700, exist_ok=True)
+                with open(backup, "w", encoding="utf-8") as fh:
+                    fh.write(old)
+            write_robots(path, text)
+            done.append("wrote %s%s" % (path, " (the file that was there is in %s)" % backup if saved else ""))
+        except OSError as e:
+            errors.append("robots.txt for %s: cannot write %s: %s" % (domain, path, e))
+    return done, errors
 
 
 def load_rules_state():
@@ -1698,27 +1779,38 @@ def cmd_rules(args, conf):
         save_rules_state(st)
         say("rules unchanged since the last check (%s)" % st.get("message", "nothing applied"))
         return
+    errors, changes, msgs = [], [], []
     try:
         changed, msg = apply_rate(reply, args.dry_run)
+        msgs.append(msg.split("\n")[0])
+        if changed:
+            changes.append(msg)
     except RuleError as e:
-        st["error"] = str(e)
-        st.pop("etag", None)   # try again next time
-        if not args.dry_run:
-            save_rules_state(st)
-        sys.exit("bomvakt: rules: %s" % e)
+        errors.append(str(e))
+    done, errs = apply_robots(reply, args.dry_run)
+    changes += done
+    errors += errs
+    n = len(reply.get("robots") or [])
+    msgs.append("robots.txt: %d file%s" % (n, "" if n == 1 else "s") if n else "robots.txt: none")
     if args.dry_run:
-        print(msg)
+        print("\n".join(changes + ["error: " + e for e in errors]) or "nothing would change")
         return
-    st.update({"etag": etag, "message": msg.split("\n")[0]})
-    st.pop("error", None)
-    if changed:
+    st["message"] = "; ".join(msgs)
+    if changes:
         st["changed"] = st["checked"]
-    save_rules_state(st)
-    if changed:
-        print(msg)
+    if errors:
+        st["error"] = "; ".join(errors)
+        st.pop("etag", None)   # try again next time
     else:
-        say(msg)
-
+        st["etag"] = etag
+        st.pop("error", None)
+    save_rules_state(st)
+    if changes:
+        print("\n".join(changes))
+    elif not errors:
+        say(st["message"])
+    if errors:
+        sys.exit("bomvakt: rules: " + "\nbomvakt: rules: ".join(errors))
 
 def cmd_status(args, conf):
     print("bomvakt %s" % VERSION)

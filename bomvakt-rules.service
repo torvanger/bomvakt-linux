@@ -10,13 +10,13 @@ ExecStart=/usr/bin/python3 /usr/lib/bomvakt/bomvakt.py --conf /etc/bomvakt/bomva
 SyslogIdentifier=bomvakt-rules
 StateDirectory=bomvakt-rules
 
-# Root, because it writes its own file in /etc/nginx/conf.d and reloads
-# nginx. Only those places are writable; the rest of the system is read-only.
+# Root, because it writes its own file in /etc/nginx/conf.d, reloads nginx
+# and writes robots.txt into web roots (anywhere, e.g. /var/www or /home).
+# /usr, /boot and the rest of /etc stay read-only.
 NoNewPrivileges=yes
 PrivateTmp=yes
-ProtectHome=yes
-ProtectSystem=strict
-ReadWritePaths=-/etc/nginx/conf.d -/var/log/nginx -/var/lib/nginx
+ProtectSystem=full
+ReadWritePaths=-/etc/nginx/conf.d
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectControlGroups=yes
