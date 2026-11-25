@@ -1,0 +1,23 @@
+[Unit]
+Description=Bomvakt rules (applies the rules from bomvakt.com/konto/regler)
+Documentation=man:bomvakt(1) https://bomvakt.com
+After=network-online.target nginx.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/lib/bomvakt/bomvakt.py --conf /etc/bomvakt/bomvakt.conf rules --quiet
+SyslogIdentifier=bomvakt-rules
+StateDirectory=bomvakt-rules
+
+# Root, because it writes its own file in /etc/nginx/conf.d and reloads
+# nginx. Only those places are writable; the rest of the system is read-only.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=-/etc/nginx/conf.d -/var/log/nginx -/var/lib/nginx
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX

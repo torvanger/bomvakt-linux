@@ -18,6 +18,10 @@ ban.
 * Keeps lines while Bomvakt cannot be reached, and after a restart carries
   on where it stopped, so updates lose nothing.
 * Runs as a throwaway user that can read the logs and nothing else.
+* Applies the rules you make at bomvakt.com/konto/regler that it supports,
+  so far **nginx rate limits** (429), from a small root job every 5 minutes:
+  one file of its own in `/etc/nginx/conf.d`, tested with `nginx -t` before
+  nginx reloads, and put back as it was if the test fails.
 * Needs only Python 3.8+ and its standard library: no pip, no packages, no
   compiler.
 
@@ -35,9 +39,12 @@ them on your behalf, to protect your server.
 
 ### What it does not do
 
-* It does not change your web server, firewall or other config. (Banning
-  comes later, and only when you turn it on.)
-* It does not need root once it is installed.
+* It does not edit your web server's or firewall's own config. What it
+  applies goes in files of its own (`/etc/nginx/conf.d/bomvakt-*.conf`),
+  and only once you make a rule; `rules = off` in the config stops it.
+* The log follower never runs as root. Only the rules job does, because it
+  writes in `/etc/nginx/conf.d` and reloads nginx; the rest of the system
+  is read-only to it.
 * It does not update itself. You decide when: `sudo bomvakt update`.
 
 ----
@@ -49,6 +56,7 @@ them on your behalf, to protect your server.
   * [Following the logs](#following-the-logs)
   * [Sending](#sending)
   * [The service](#the-service)
+  * [The rules job](#the-rules-job)
   * [What the installer does](#what-the-installer-does)
 * [Installation](#installation)
   * [Requirements](#requirements)
@@ -196,6 +204,32 @@ rest:
 You can check the protection yourself with
 `systemd-analyze security bomvakt`.
 
+### The rules job
+
+`bomvakt-rules.timer` runs `bomvakt rules` as root a minute after start and
+then every 5 minutes (`bomvakt-rules.service`, a oneshot). It:
+
+1. asks Bomvakt for this server's rules (`GET /api/rules` with the domains
+   from the config); when nothing changed since last time, the answer is
+   empty and it stops there;
+2. writes the nginx rate limits to `/etc/nginx/conf.d/bomvakt-rate.conf`
+   (http level: nothing goes in your server blocks), or removes the file
+   when you have no rate rules left;
+3. runs `nginx -t`; if that fails, puts the old file back and logs why;
+4. reloads nginx.
+
+It never touches a file it did not write (each starts with
+`# Bomvakt rate limits`), and does nothing on a server without nginx.
+Under systemd only `/etc/nginx/conf.d`, `/var/log/nginx` and
+`/var/lib/nginx` are writable to it. A server block with a `limit_req` of
+its own does not inherit the limits.
+
+```sh
+sudo bomvakt rules --dry-run      # show what it would write
+sudo bomvakt rules --force        # apply now, even if nothing changed
+journalctl -u bomvakt-rules       # what it did
+```
+
 ### What the installer does
 
 `install.sh` is a plain POSIX shell script, written one command per line so
@@ -204,11 +238,12 @@ you can read it, or run any line by hand. On `install` it:
 1. checks that it runs as root on a system with systemd;
 2. checks for Python 3.8+, and installs `python3` with `apt-get` or `dnf` if
    it is missing;
-3. downloads `bomvakt.py`, `bomvakt.service`, `bomvakt.conf`, the manual
-   `bomvakt.1` and itself into
+3. downloads `bomvakt.py`, `bomvakt.service`, `bomvakt-rules.service`,
+   `bomvakt-rules.timer`, `bomvakt.conf`, the manual `bomvakt.1` and itself into
    a temporary directory, and checks that `bomvakt.py` compiles;
 4. copies them into place (see below), keeping an existing config and key;
-5. enables and starts the service, and shows the log if it fails to start;
+5. enables and starts the service and the rules timer, and shows the log
+   if the service fails to start;
 6. if this server has no key yet, runs `bomvakt setup` (account and key).
    With no terminal to ask on (e.g. from a provisioning tool), or with
    `BOMVAKT_NO_SETUP=1`, it skips this and tells you to run it later.
@@ -223,6 +258,9 @@ These are the only paths it touches:
 | `/usr/lib/bomvakt/install.sh` | the installer, for update and offline uninstall | removed | removed |
 | `/usr/local/bin/bomvakt` | link to the agent, the `bomvakt` command | removed | removed |
 | `/etc/systemd/system/bomvakt.service` | the service | removed | removed |
+| `/etc/systemd/system/bomvakt-rules.service`, `.timer` | the rules job | removed | removed |
+| `/etc/nginx/conf.d/bomvakt-rate.conf` | rate limits, written by the rules job | removed | removed |
+| `/var/lib/bomvakt-rules` | the rules job's state | removed | removed |
 | `/usr/local/share/man/man1/bomvakt.1` | the manual, `man bomvakt` | removed | removed |
 | `/var/lib/bomvakt` | state: how far each log was read | removed | removed |
 | `/etc/bomvakt/bomvakt.conf` | your config | **kept** | removed |
@@ -297,6 +335,9 @@ interval = 300
 
 # Where to send. Leave as is.
 server = https://bomvakt.com
+
+# Apply the rules from bomvakt.com/konto/regler (nginx rate limits). on | off
+rules = on
 ```
 
 One log per site: list each under `[logs]` with its own domain (add the
@@ -328,6 +369,7 @@ sudo systemctl restart bomvakt
 ```sh
 sudo bomvakt status               # account, domains, logs, shared logs, last send
 sudo bomvakt logs                 # give each site its own log (--dry-run, --undo)
+sudo bomvakt rules                # apply the rules from the website now (--dry-run, --force)
 sudo bomvakt setup                # create an account, or switch to another key
 sudo bomvakt add-domain shop.example.com --name "Webshop"
 sudo bomvakt name shop.example.com Webshop   # display name; no name = the domain

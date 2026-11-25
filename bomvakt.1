@@ -56,7 +56,7 @@ every web session of the account.
 .B status
 Version, account, domains, each log with its domain and whether it can be
 read, websites that share a log or have one the agent does not follow,
-and the service's last send.
+the service's last send, and what the rules job last did.
 .TP
 .B logs
 Give each website on the server its own access log, the way certbot edits
@@ -81,6 +81,28 @@ Do not ask; take every website.
 .TP
 .B \-\-undo
 Take every change out again.
+.RE
+.TP
+.B rules
+Fetch the rules made at bomvakt.com/konto/regler for this server's domains
+and apply the ones this agent supports. So far: nginx rate limits, written to
+.I /etc/nginx/conf.d/bomvakt\-rate.conf
+(http level; nothing goes in the server blocks), tested with
+.BR "nginx \-t" ,
+put back as they were if the test fails, then nginx is reloaded. Never
+touches a file it did not write. The timer
+.B bomvakt\-rules.timer
+runs it every 5 minutes.
+.RS
+.TP
+.B \-\-dry\-run
+Only show what would change.
+.TP
+.B \-\-force
+Fetch and compare even if the server says nothing changed.
+.TP
+.B \-\-quiet
+Print only changes and errors (what the timer uses).
 .RE
 .TP
 .B update
@@ -132,6 +154,14 @@ Seconds between summaries in the journal (at least 10). Default 300.
 .TP
 .B server
 Where to send. Leave as is.
+.TP
+.B rules
+.B on
+(default) or
+.BR off :
+whether
+.B bomvakt rules
+applies the rules from the website.
 .RE
 .TP
 .B [logs]
@@ -162,6 +192,17 @@ Link to the agent.
 .TP
 .I /etc/systemd/system/bomvakt.service
 The service.
+.TP
+.I /etc/systemd/system/bomvakt\-rules.timer
+Runs
+.B bomvakt rules
+as root every 5 minutes (via
+.IR bomvakt\-rules.service ).
+.TP
+.I /etc/nginx/conf.d/bomvakt\-rate.conf
+The nginx rate limits, written by
+.BR rules .
+Removed by uninstall.
 .TP
 .I /etc/bomvakt/bomvakt.conf
 The config. Kept by uninstall.

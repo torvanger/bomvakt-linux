@@ -14,6 +14,9 @@ and decide what to ban.
     bomvakt status             account, domains, logs, shared logs, last send
     bomvakt logs               give each website its own access log, like certbot:
                                shows the change, backs up, tests, reloads (--undo)
+    bomvakt rules              fetch the rules made at bomvakt.com/konto/regler and
+                               apply what this agent supports (nginx rate limits);
+                               a timer runs it every 5 minutes (--dry-run, --force)
     bomvakt update             install the latest version (keeps config and key)
     bomvakt parse FILE         show how log lines are read (no sending)
     bomvakt run                what the service runs
@@ -29,14 +32,17 @@ import json
 import logging
 import os
 import re
+import shutil
 import signal
 import socket
+import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
-VERSION = "0.5.4"
+VERSION = "0.6.0"
 DEFAULT_CONF = "/etc/bomvakt/bomvakt.conf"
 DEFAULT_KEY = "/etc/bomvakt/key"
 DEFAULT_SERVER = "https://bomvakt.com"
@@ -255,7 +261,10 @@ def load_config(path):
     except ValueError:
         sys.exit("bad config %s: interval must be a number of seconds" % path)
     server = os.environ.get("BOMVAKT_SERVER") or sec.get("server", DEFAULT_SERVER).strip() or DEFAULT_SERVER
-    return {"logs": logs, "domain": domain, "interval": interval, "server": server.rstrip("/")}
+    rules = sec.get("rules", "on").strip().lower()
+    if rules not in ("on", "off"):
+        sys.exit("bad config %s: rules must be on or off" % path)
+    return {"logs": logs, "domain": domain, "interval": interval, "server": server.rstrip("/"), "rules": rules}
 
 
 def set_conf_value(path, key, value):
@@ -567,6 +576,169 @@ def run(conf, key_file, conf_path=DEFAULT_CONF):
     for f in followers:
         f.close()
     log.info("bomvakt stopped")
+
+# -------------------------------------------------------------------- rules
+#
+# The rules made at bomvakt.com/konto/regler (GET /api/rules), applied by
+# `bomvakt rules` as root from bomvakt-rules.timer: the log-following
+# service has no rights to change the system, and keeps it that way.
+# Everything written is a file of our own (conf.d); nothing in the web
+# server's own config is touched. Supported so far: nginx rate limits.
+
+RATE_DIR = "/etc/nginx/conf.d"
+RATE_PREFIX = "bomvakt-"
+RATE_MARK = "# Bomvakt rate limits"
+RULES_STATE = "/var/lib/bomvakt-rules/state.json"
+NGINX_TEST = ["nginx", "-t"]
+NGINX_RELOAD = (["systemctl", "reload", "nginx"], ["nginx", "-s", "reload"])
+
+
+class RuleError(Exception):
+    pass
+
+
+def agent_domains(conf):
+    """The domains this server's logs belong to: the rules are fetched for them."""
+    ds = {d for d in conf["logs"].values() if d}
+    if conf["domain"]:
+        ds.add(conf["domain"])
+    return sorted(ds)
+
+
+def fetch_rules(server, key, domains, etag=""):
+    """GET /api/rules for these domains. Returns (reply, etag); reply is None
+    when nothing changed since etag (304). Raises ApiError."""
+    url = server + "/api/rules"
+    if domains:
+        url += "?" + urllib.parse.urlencode({"domains": ",".join(domains)})
+    headers = {"User-Agent": "bomvakt-linux/" + VERSION, "Accept": "application/json",
+               "Authorization": "Bearer " + key}
+    if etag:
+        headers["If-None-Match"] = etag
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=30) as r:
+            return json.loads(r.read().decode("utf-8") or "{}"), r.headers.get("ETag", "")
+    except urllib.error.HTTPError as e:
+        if e.code == 304:
+            return None, etag
+        try:
+            j = json.loads(e.read().decode("utf-8"))
+            raise ApiError(e.code, j.get("code", "http"), j.get("error", "HTTP %d" % e.code))
+        except (ValueError, AttributeError):
+            raise ApiError(e.code, "http", "HTTP %d from %s" % (e.code, server))
+    except (urllib.error.URLError, socket.timeout, OSError) as e:
+        raise ApiError(0, "network", "cannot reach %s: %s" % (server, getattr(e, "reason", e)))
+    except ValueError:
+        raise ApiError(0, "bad_reply", "the server did not answer JSON")
+
+
+def run_cmd(cmd):
+    """(ok, output) of a command, stdout and stderr together."""
+    try:
+        r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=60)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return False, "%s: %s" % (" ".join(cmd), e)
+    return r.returncode == 0, r.stdout.decode("utf-8", "replace").strip()
+
+
+def write_new(path, text):
+    """Write a file atomically, mode 0644 (a config the web server reads)."""
+    tmp = path + ".bomvakt-tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        fh.write(text)
+    os.chmod(tmp, 0o644)
+    os.replace(tmp, path)
+
+
+def after_first_line(text):
+    """A rules file without its first line (when it was made)."""
+    return text.split("\n", 1)[1] if "\n" in text else ""
+
+
+def reload_nginx():
+    out = ""
+    for cmd in NGINX_RELOAD:
+        if cmd[0] == "systemctl" and not os.path.isdir("/run/systemd/system"):
+            continue
+        ok, out = run_cmd(cmd)
+        if ok:
+            return True, ""
+    return False, out
+
+
+def apply_rate(reply, dry_run=False):
+    """Write the nginx rate-limit file when it changed, test it, reload nginx;
+    put the old file back when the test fails. Returns (changed, message);
+    raises RuleError when it could not."""
+    nr = reply.get("nginx_rate") or {}
+    path = str(nr.get("path", ""))
+    conf = str(nr.get("conf", ""))
+    if not os.path.isdir(RATE_DIR) or not shutil.which("nginx"):
+        return False, "nginx rate limits: no nginx here, skipped"
+    # Only ever a file of our own in conf.d.
+    if (os.path.dirname(path) != RATE_DIR or not os.path.basename(path).startswith(RATE_PREFIX)
+            or not path.endswith(".conf") or not conf.startswith(RATE_MARK)):
+        raise RuleError("the server sent no usable nginx file")
+    n = conf.count("\nlimit_req_zone ")
+    want = conf if n else ""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            have = fh.read()
+    except FileNotFoundError:
+        have = None
+    except OSError as e:
+        raise RuleError("cannot read %s: %s" % (path, e))
+    if have is not None and not have.startswith(RATE_MARK):
+        raise RuleError("%s was not written by bomvakt: left alone" % path)
+    if not want and have is None:
+        return False, "nginx rate limits: none"
+    if want and have is not None and after_first_line(want) == after_first_line(have):
+        return False, "nginx rate limits: %d, unchanged" % n
+    if dry_run:
+        if not want:
+            return True, "would remove %s (no rate limits left)" % path
+        return True, "would write %s (%d rate limits):\n\n%s" % (path, n, want)
+    try:
+        if want:
+            write_new(path, want)
+        else:
+            os.remove(path)
+    except OSError as e:
+        raise RuleError("cannot write %s: %s" % (path, e))
+    ok, out = run_cmd(NGINX_TEST)
+    if not ok:
+        try:
+            if have is None:
+                os.remove(path)
+            else:
+                write_new(path, have)
+        except OSError:
+            pass
+        raise RuleError("nginx -t failed with the new %s, so the old one is back:\n%s" % (path, out))
+    ok, out = reload_nginx()
+    if not ok:
+        raise RuleError("nginx -t passed but nginx did not reload: %s" % out)
+    if not want:
+        return True, "removed %s (no rate limits left), nginx reloaded" % path
+    return True, "wrote %s (%d rate limits), nginx reloaded" % (path, n)
+
+
+def load_rules_state():
+    try:
+        with open(RULES_STATE, encoding="utf-8") as fh:
+            st = json.load(fh)
+        return st if isinstance(st, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_rules_state(st):
+    try:
+        os.makedirs(os.path.dirname(RULES_STATE), mode=0o755, exist_ok=True)
+        write_new(RULES_STATE, json.dumps(st, indent=1))
+    except OSError as e:
+        log.warning("cannot save %s: %s", RULES_STATE, e)
+
 
 
 # ------------------------------------------------------------------ commands
@@ -1500,6 +1672,54 @@ def cmd_password(args, conf):
     print("Log in at %s/konto as %s." % (conf["server"], r["username"]))
 
 
+def cmd_rules(args, conf):
+    """Fetch the rules and apply what this agent supports. --quiet (the
+    timer) prints only changes and errors."""
+    need_root("rules")
+    say = (lambda m: None) if args.quiet else print
+    if conf["rules"] == "off" and not args.dry_run:
+        say("rules are turned off in %s (rules = off)" % args.conf)
+        return
+    key = read_key(args.key_file)
+    if not key:
+        sys.exit("bomvakt: no key yet; run: sudo bomvakt setup")
+    st = load_rules_state()
+    st["checked"] = int(time.time())
+    etag = "" if args.force or args.dry_run else st.get("etag", "")
+    try:
+        reply, etag = fetch_rules(conf["server"], key, agent_domains(conf), etag)
+    except ApiError as e:
+        st["error"] = str(e)
+        if not args.dry_run:
+            save_rules_state(st)
+        sys.exit("bomvakt: rules: %s" % e)
+    if reply is None:
+        st.pop("error", None)
+        save_rules_state(st)
+        say("rules unchanged since the last check (%s)" % st.get("message", "nothing applied"))
+        return
+    try:
+        changed, msg = apply_rate(reply, args.dry_run)
+    except RuleError as e:
+        st["error"] = str(e)
+        st.pop("etag", None)   # try again next time
+        if not args.dry_run:
+            save_rules_state(st)
+        sys.exit("bomvakt: rules: %s" % e)
+    if args.dry_run:
+        print(msg)
+        return
+    st.update({"etag": etag, "message": msg.split("\n")[0]})
+    st.pop("error", None)
+    if changed:
+        st["changed"] = st["checked"]
+    save_rules_state(st)
+    if changed:
+        print(msg)
+    else:
+        say(msg)
+
+
 def cmd_status(args, conf):
     print("bomvakt %s" % VERSION)
     print("server:  %s" % conf["server"])
@@ -1538,6 +1758,19 @@ def cmd_status(args, conf):
             print("         last error: %s" % st["last_error"])
     except (OSError, ValueError, KeyError):
         pass
+    if conf["rules"] == "off":
+        print("rules:   off (rules = off in %s)" % args.conf)
+    else:
+        rs = load_rules_state()
+        if rs.get("checked"):
+            print("rules:   %s, checked %s" % (rs.get("message", "nothing applied yet"),
+                                            time.strftime("%Y-%m-%d %H:%M", time.localtime(rs["checked"]))))
+            if rs.get("error"):
+                print("         last error: %s" % rs["error"].split("\n")[0])
+        elif os.geteuid() != 0:
+            print("rules:   (run with sudo to see)")
+        else:
+            print("rules:   not fetched yet (sudo bomvakt rules)")
     sys.stdout.flush()
     if os.path.isdir("/run/systemd/system"):
         os.system("systemctl is-active bomvakt >/dev/null 2>&1 && echo 'running: yes' || echo 'running: no'")
@@ -1632,6 +1865,10 @@ def main():
     p.add_argument("--dry-run", action="store_true", help="only show what would change")
     p.add_argument("--yes", action="store_true", help="do not ask (all sites)")
     p.add_argument("--undo", action="store_true", help="take the changes out again")
+    p = sub.add_parser("rules", help="fetch the rules from bomvakt.com and apply them (nginx rate limits)")
+    p.add_argument("--dry-run", action="store_true", help="only show what would change")
+    p.add_argument("--force", action="store_true", help="fetch and compare even if nothing changed")
+    p.add_argument("--quiet", action="store_true", help="print only changes and errors (the timer)")
     sub.add_parser("update", help="install the latest version")
     p = sub.add_parser("parse", help="show how a log file is read (sends nothing)")
     p.add_argument("file")
@@ -1644,7 +1881,7 @@ def main():
     if cmd == "run":
         run(conf, args.key_file, args.conf)
         return
-    {"setup": cmd_setup, "add-domain": cmd_add_domain, "name": cmd_name, "password": cmd_password, "status": cmd_status, "logs": cmd_logs,
+    {"setup": cmd_setup, "add-domain": cmd_add_domain, "name": cmd_name, "password": cmd_password, "status": cmd_status, "logs": cmd_logs, "rules": cmd_rules,
      "update": cmd_update, "parse": cmd_parse}[cmd](args, conf)
 
 

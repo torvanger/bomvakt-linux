@@ -18,10 +18,14 @@
 #   /usr/lib/bomvakt/install.sh              this script (update, offline uninstall)
 #   /usr/local/bin/bomvakt                   link to the agent: `sudo bomvakt …`
 #   /etc/systemd/system/bomvakt.service      the service
+#   /etc/systemd/system/bomvakt-rules.*      timer + job: `bomvakt rules` as root
+#                                            every 5 min (writes only its own
+#                                            /etc/nginx/conf.d/bomvakt-*.conf)
 #   /usr/local/share/man/man1/bomvakt.1      the manual: `man bomvakt`
 #   /etc/bomvakt/bomvakt.conf                config (kept by uninstall)
 #   /etc/bomvakt/key                         API key (kept by uninstall)
 #   /var/lib/bomvakt                         state (systemd StateDirectory)
+#   /var/lib/bomvakt-rules                   the rules job's state
 #
 # Written one command per line so any line can be run by hand.
 
@@ -33,6 +37,10 @@ CONF_DIR=/etc/bomvakt
 KEY_FILE=/etc/bomvakt/key
 BIN_LINK=/usr/local/bin/bomvakt
 UNIT=/etc/systemd/system/bomvakt.service
+RULES_UNIT=/etc/systemd/system/bomvakt-rules.service
+RULES_TIMER=/etc/systemd/system/bomvakt-rules.timer
+RULES_STATE=/var/lib/bomvakt-rules
+RATE_CONF=/etc/nginx/conf.d/bomvakt-rate.conf
 MAN_PAGE=/usr/local/share/man/man1/bomvakt.1
 STATE_DIR=/var/lib/bomvakt
 ACTION="${1:-install}"
@@ -113,6 +121,8 @@ do_install() {
     trap 'rm -rf "$TMP"' EXIT
     fetch bomvakt.py "$TMP/bomvakt.py"
     fetch bomvakt.service "$TMP/bomvakt.service"
+    fetch bomvakt-rules.service "$TMP/bomvakt-rules.service"
+    fetch bomvakt-rules.timer "$TMP/bomvakt-rules.timer"
     fetch bomvakt.conf "$TMP/bomvakt.conf"
     fetch install.sh "$TMP/install.sh"
     fetch bomvakt.1 "$TMP/bomvakt.1"
@@ -123,6 +133,8 @@ do_install() {
     install -m 0755 "$TMP/bomvakt.py" "$LIB_DIR/bomvakt.py"
     install -m 0755 "$TMP/install.sh" "$LIB_DIR/install.sh"
     install -m 0644 "$TMP/bomvakt.service" "$UNIT"
+    install -m 0644 "$TMP/bomvakt-rules.service" "$RULES_UNIT"
+    install -m 0644 "$TMP/bomvakt-rules.timer" "$RULES_TIMER"
     ln -sf "$LIB_DIR/bomvakt.py" "$BIN_LINK"
     install -d -m 0755 "$(dirname "$MAN_PAGE")"
     install -m 0644 "$TMP/bomvakt.1" "$MAN_PAGE"
@@ -144,6 +156,8 @@ do_install() {
     systemctl daemon-reload
     systemctl enable bomvakt.service
     systemctl restart bomvakt.service
+    systemctl enable bomvakt-rules.timer
+    systemctl restart bomvakt-rules.timer
     sleep 2
     if ! systemctl is-active --quiet bomvakt.service; then
         journalctl -u bomvakt.service -n 20 --no-pager
@@ -171,6 +185,7 @@ do_install() {
     echo
     say "status:    sudo bomvakt status"
     say "log:       journalctl -u bomvakt -f"
+    say "rules:     sudo bomvakt rules (runs every 5 minutes by itself)"
     say "config:    $CONF_DIR/bomvakt.conf"
     say "manual:    man bomvakt"
     say "update:    sudo bomvakt update"
@@ -181,14 +196,25 @@ do_uninstall() {
     if systemctl list-unit-files bomvakt.service >/dev/null 2>&1; then
         systemctl disable --now bomvakt.service 2>/dev/null || true
     fi
+    systemctl disable --now bomvakt-rules.timer 2>/dev/null || true
     rm -f "$UNIT"
+    rm -f "$RULES_UNIT"
+    rm -f "$RULES_TIMER"
     rm -f "$BIN_LINK"
     rm -f "$MAN_PAGE"
     systemctl daemon-reload
     systemctl reset-failed bomvakt.service 2>/dev/null || true
+    systemctl reset-failed bomvakt-rules.service 2>/dev/null || true
     rm -rf "$LIB_DIR"
     rm -rf "$STATE_DIR"
     rm -rf /var/lib/private/bomvakt
+    rm -rf "$RULES_STATE"
+    # The nginx file the rules job wrote: no limits left behind without it.
+    if [ -f "$RATE_CONF" ]; then
+        rm -f "$RATE_CONF"
+        nginx -t 2>/dev/null && systemctl reload nginx 2>/dev/null || true
+        say "removed $RATE_CONF"
+    fi
     say "uninstalled"
 }
 

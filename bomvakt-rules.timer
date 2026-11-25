@@ -1,0 +1,11 @@
+[Unit]
+Description=Fetch and apply the Bomvakt rules every 5 minutes
+Documentation=man:bomvakt(1)
+
+[Timer]
+OnActiveSec=1min
+OnUnitActiveSec=5min
+RandomizedDelaySec=30s
+
+[Install]
+WantedBy=timers.target
